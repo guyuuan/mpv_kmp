@@ -1,0 +1,4 @@
+headers = mpv/client.h
+package = com.guyuuan.mpv_kmp.mpv
+compilerOpts = -I/opt/homebrew/include -I/usr/local/include
+linkerOpts = -L/opt/homebrew/lib -L/usr/local/lib -lmpv

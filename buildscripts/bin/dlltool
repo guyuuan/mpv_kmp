@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+trip="${TARGET_TRIPLE:-x86_64-w64-mingw32}"
+cmd="${trip}-dlltool"
+if command -v "$cmd" >/dev/null 2>&1; then
+  exec "$cmd" "$@"
+fi
+if command -v dlltool >/dev/null 2>&1; then
+  exec dlltool "$@"
+fi
+echo "dlltool wrapper: target tool not found ($cmd)" >&2
+exit 127

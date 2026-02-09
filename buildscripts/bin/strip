@@ -1,0 +1,8 @@
+#!/bin/bash
+set -e
+trip="${TARGET_TRIPLE:-x86_64-w64-mingw32}"
+cmd="${trip}-strip"
+if command -v "$cmd" >/dev/null 2>&1; then
+  exec "$cmd" "$@"
+fi
+exec /usr/bin/strip "$@"
