@@ -82,20 +82,11 @@ make -j$cores
 make DESTDIR="$prefix_dir" install
 pcdir="$prefix_dir/lib/pkgconfig"
 if [ -d "$pcdir" ]; then
-    arch_variants=("$arch_family")
-    case "$arch_family" in
-        aarch64) arch_variants+=("arm64" "arm64-v8a") ;;
-        arm) arch_variants+=("armeabi-v7a" "armv7") ;;
-        x86_64) arch_variants+=("amd64" "x64") ;;
-        i686) arch_variants+=("x86") ;;
-    esac
-    for variant in "${arch_variants[@]}"; do
-        for pc in "$pcdir"/*-"$platform"-"$variant".pc; do
-            [ -e "$pc" ] || continue
-            base=$(basename "$pc")
-            plain="${base%%-$platform-*}.pc"
-            echo "Linking $pc to $pcdir/$plain"
-            [ -e "$pcdir/$plain" ] || ln -s "$base" "$pcdir/$plain"
-        done
-    done
+  for pc in "$pcdir"/*-"$platform"-*.pc; do
+      [ -e "$pc" ] || continue
+      base=$(basename "$pc")
+      plain="${base%%-$platform-*}.pc"
+      echo "Linking $pc to $pcdir/$plain"
+      [ -e "$pcdir/$plain" ] || ln -s "$base" "$pcdir/$plain"
+  done
 fi
