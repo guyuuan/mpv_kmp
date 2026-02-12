@@ -101,9 +101,11 @@ load_target () {
                 if [ -n "$sdk" ] && [ -d "$sdk" ]; then
                     export CFLAGS="${CFLAGS:+$CFLAGS }-target $target_triple -isysroot $sdk"
                     export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-target $target_triple -isysroot $sdk"
+                    export LDFLAGS="${LDFLAGS:+$LDFLAGS }-target $target_triple -isysroot $sdk"
                 else
                     export CFLAGS="${CFLAGS:+$CFLAGS }-target $target_triple"
                     export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-target $target_triple"
+                    export LDFLAGS="${LDFLAGS:+$LDFLAGS }-target $target_triple"
                 fi
             fi
             export cross_system=darwin
@@ -338,7 +340,7 @@ copy_to_resources () {
                     [ -e "$lib" ] || continue
                     for a in aarch64 x86_64; do
                         local dst1="$res_base/$os_id-$a"
-                        mkdir -p "$dst1" "$dst2"
+                        mkdir -p "$dst1"
                         cp -f "$lib" "$dst1/$(basename "$lib")"
                     done
                 done
@@ -356,7 +358,7 @@ copy_to_resources () {
                 for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
                     [ -e "$lib" ] || continue
                     local dst1="$res_base/$os_id-$arch_id"
-                    mkdir -p "$dst1" "$dst2"
+                    mkdir -p "$dst1"
                     cp -f "$lib" "$dst1/$(basename "$lib")"
                 done
             fi
