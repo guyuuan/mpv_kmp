@@ -1,0 +1,97 @@
+name: Build MPV Libraries
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'buildscripts/**'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          brew update
+          brew install automake autoconf libtool pkg-config coreutils gnu-sed wget meson ninja llvm zig
+          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Download SDK and Sources
+        env:
+          IN_CI: 1
+        run: |
+          buildscripts/download.sh
+
+      - name: Build Android arm64
+        run: |
+          buildscripts/buildall.sh --platform android --arch arm64
+
+      - name: Build Android x86_64
+        run: |
+          buildscripts/buildall.sh --platform android --arch x86_64
+
+      - name: Build Android armv7l
+        run: |
+          buildscripts/buildall.sh --platform android --arch armv7l
+
+      - name: Build macOS X86_64
+        run: |
+          buildscripts/buildall.sh --platform macos --arch x86_64
+
+      - name: Build macOS ARM64
+        run: |
+          buildscripts/buildall.sh --platform macos --arch arm64
+
+      - name: Build iOS arm64
+        run: |
+          buildscripts/buildall.sh --platform ios --arch arm64
+
+      - name: Build iOS Simulator (x86_64)
+        run: |
+          buildscripts/buildall.sh --platform ios --arch x86_64
+
+      - name: Build Linux x86_64
+        run: |
+          buildscripts/buildall.sh --platform linux --arch x86_64
+
+      - name: Build Linux aarch64
+        run: |
+          buildscripts/buildall.sh --platform linux --arch aarch64
+
+      - name: Build Windows x86_64
+        run: |
+          buildscripts/buildall.sh --platform windows --arch x86_64
+
+      - name: Package Artifacts
+        run: |
+          mkdir artifacts
+          cd buildscripts/prefix
+          for d in *; do
+            if [ -d "$d" ]; then
+              echo "Packaging $d..."
+              # Zip the lib directory (containing dynamic libs) or bin for Windows
+              # Only package dynamic libraries if they exist
+              if find "$d" -type f \( -name "*.dylib" -o -name "*.so" -o -name "*.dll" \) | grep -q .; then
+                 zip -r "../../artifacts/$d.zip" "$d" -i '*.dylib' '*.so' '*.dll'
+              else
+                 echo "No dynamic libraries found in $d, skipping."
+              fi
+            fi
+          done
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-libraries
+          path: artifacts/*.zip
