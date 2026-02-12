@@ -18,8 +18,8 @@ jobs:
       - name: Install Dependencies
         run: |
           brew update
-          brew install automake autoconf libtool pkg-config coreutils gnu-sed wget meson ninja llvm zig
-          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
+          brew install automake autoconf libtool pkg-config coreutils gnu-sed wget meson ninja llvm zig nasm
+          echo "$(brew --prefix)/bin" >> $GITHUB_PATH
 
       - name: Setup Java
         uses: actions/setup-java@v4
