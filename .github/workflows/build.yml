@@ -31,7 +31,8 @@ jobs:
         env:
           IN_CI: 1
         run: |
-          buildscripts/download.sh
+          cd buildscripts
+          ./download.sh
 
       - name: Build Android arm64
         run: |
