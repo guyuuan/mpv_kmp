@@ -16,8 +16,13 @@ fi
 mkdir -p _build${build_suffix}
 cd _build${build_suffix}
 
+arch_family=${target_triple%%-*}
+host_triple=${target_triple:-$ndk_triple}
+[ "$platform" = "ios" ] && [ "$arch_family" = "x86_64" ] && host_triple="x86_64-apple-darwin"
+[ "$platform" = "ios" ] && { [ "$arch_family" = "arm64" ] || [ "$arch_family" = "aarch64" ]; } && host_triple="aarch64-apple-darwin"
+
 ../configure \
-    --host=${target_triple:-$ndk_triple} --with-pic \
+    --host=$host_triple --with-pic \
 	--enable-static --disable-shared \
 	--enable-libunibreak --disable-require-system-font-provider
 

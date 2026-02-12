@@ -14,9 +14,10 @@ else
 fi
 
 unset CC CXX # meson wants these unset
-
-meson setup $build --cross-file "$prefix_dir"/crossfile.txt \
-	$( [ "$cross_system" = "windows" ] && echo "-Dzlib=none -Dbzip2=disabled -Dpng=disabled -Dbrotli=disabled" )
+opts=
+[ "$cross_system" = "windows" ] && opts="-Dzlib=none -Dbzip2=disabled -Dpng=disabled -Dbrotli=disabled"
+[ "$cross_system" = "linux" ] && ! pkg-config --exists zlib && opts="$opts -Dzlib=disabled"
+meson setup $build --cross-file "$prefix_dir"/crossfile.txt $opts
 
 ninja -C $build -j$cores
 DESTDIR="$prefix_dir" ninja -C $build install

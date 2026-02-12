@@ -40,6 +40,9 @@ if [ ! -d harfbuzz ]; then
 		tar -xJ -C harfbuzz --strip-components=1
 fi
 
+# zlib
+[ ! -d zlib ] && git clone https://github.com/madler/zlib zlib
+
 # unibreak
 if [ ! -d unibreak ]; then
 	mkdir unibreak

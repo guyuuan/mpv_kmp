@@ -111,6 +111,7 @@ private object MPV {
         try {
             Native.load("mpv", MPVLibrary::class.java)
         } catch (_: Throwable) {
+            val os = osId()
             val res = extractLibFromResources()
             if (res != null) {
                 try {
@@ -124,17 +125,41 @@ private object MPV {
                     } catch (_: Throwable) {}
                 }
             }
-            val paths = listOf(
-                "/opt/homebrew/lib/libmpv.dylib",
-                "/usr/local/lib/libmpv.dylib",
-                "libmpv.dylib"
-            )
             var loaded: MPVLibrary? = null
-            for (p in paths) {
-                try {
-                    loaded = Native.load(p, MPVLibrary::class.java)
-                    break
-                } catch (_: Throwable) {}
+            if (os == "windows") {
+                val names = listOf("libmpv-2", "libmpv", "mpv", "libmpv-2.dll", "libmpv.dll", "mpv.dll")
+                for (n in names) {
+                    try {
+                        loaded = Native.load(n, MPVLibrary::class.java)
+                        break
+                    } catch (_: Throwable) {}
+                }
+                if (loaded == null) {
+                    val arch = archId()
+                    val base = System.getProperty("user.dir") ?: ""
+                    val dir = File("$base/buildscripts/prefix/windows-$arch/bin")
+                    if (dir.isDirectory) {
+                        for (f in listOf("libmpv-2.dll", "libmpv.dll", "mpv.dll")) {
+                            val p = File(dir, f).absolutePath
+                            try {
+                                loaded = Native.load(p, MPVLibrary::class.java)
+                                break
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            } else {
+                val paths = listOf(
+                    "/opt/homebrew/lib/libmpv.dylib",
+                    "/usr/local/lib/libmpv.dylib",
+                    "libmpv.dylib"
+                )
+                for (p in paths) {
+                    try {
+                        loaded = Native.load(p, MPVLibrary::class.java)
+                        break
+                    } catch (_: Throwable) {}
+                }
             }
             requireNotNull(loaded)
         }

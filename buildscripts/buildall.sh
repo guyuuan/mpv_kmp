@@ -125,8 +125,17 @@ load_target () {
                     exit 1
                 ;;
             esac
-            export CC="clang -target $target_triple ${sdk:+-isysroot $sdk}"
-            export CXX="clang++ -target $target_triple ${sdk:+-isysroot $sdk}"
+            if [ "$1" = "x86_64" ]; then
+                export CC="xcrun --sdk iphonesimulator clang -arch x86_64 -mios-simulator-version-min=13.0"
+                export CXX="xcrun --sdk iphonesimulator clang++ -arch x86_64 -mios-simulator-version-min=13.0"
+                export OBJC="xcrun --sdk iphonesimulator clang -arch x86_64 -mios-simulator-version-min=13.0"
+                export OBJCXX="xcrun --sdk iphonesimulator clang++ -arch x86_64 -mios-simulator-version-min=13.0"
+            else
+                export CC="xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=13.0"
+                export CXX="xcrun --sdk iphoneos clang++ -arch arm64 -miphoneos-version-min=13.0"
+                export OBJC="xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=13.0"
+                export OBJCXX="xcrun --sdk iphoneos clang++ -arch arm64 -miphoneos-version-min=13.0"
+            fi
             export cross_system=darwin
             export CFLAGS="-fembed-bitcode"
             export CXXFLAGS="-fembed-bitcode"
@@ -241,9 +250,36 @@ setup_prefix () {
         cpp_bin="['zig','c++','-target','$ZIG_TARGET']"
         ar_bin="['bash','$PWD/tools/ar-wrap.sh']"
     else
-        c_bin="'$CC'"
-        cpp_bin="'$CXX'"
-        ar_bin="'$AR'"
+        # Convert shell commands into Meson arrays: ['prog','arg1','arg2',...]
+        meson_arr_from_cmd () {
+            local cmd="$1"
+            local IFS=' '
+            read -r -a parts <<< "$cmd"
+            local out="["
+            local first=1
+            for p in "${parts[@]}"; do
+                # escape single quotes
+                p=${p//\'/\'\\\'\'}
+                if [ $first -eq 1 ]; then
+                    out="$out'$p'"
+                    first=0
+                else
+                    out="$out,'$p'"
+                fi
+            done
+            out="$out]"
+            printf "%s" "$out"
+        }
+        c_bin="$(meson_arr_from_cmd "$CC")"
+        cpp_bin="$(meson_arr_from_cmd "$CXX")"
+        ar_bin="$(meson_arr_from_cmd "$AR")"
+    fi
+    if [ "$platform" = "ios" ]; then
+        objc_bin="$c_bin"
+        objcpp_bin="$cpp_bin"
+    else
+        objc_bin="'clang'"
+        objcpp_bin="'clang++'"
     fi
 
 	# meson wants to be spoonfed this file, so create it ahead of time
@@ -257,8 +293,8 @@ prefix = '/usr/local'
 [binaries]
 c = $c_bin
 cpp = $cpp_bin
-objc = 'clang'
-objcpp = 'clang++'
+objc = $objc_bin
+objcpp = $objcpp_bin
 ar = $ar_bin
 nm = '$NM'
 strip = '$STRIP'
@@ -284,9 +320,55 @@ CROSSFILE
 	fi
 }
 
+copy_to_resources () {
+    case "$platform" in
+        macos|linux|windows)
+            local os_id
+            case "$platform" in
+                macos) os_id=darwin ;;
+                linux) os_id=linux ;;
+                windows) os_id=windows ;;
+            esac
+            local res_base="$PWD/../mpv/src/jvmMain/resources"
+            mkdir -p "$res_base"
+            if [ "$platform" = "macos" ] && [ "$arch" = "universal" ]; then
+                local src="$PWD/prefix/macos-universal/lib"
+                [ -d "$src" ] || return 0
+                for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
+                    [ -e "$lib" ] || continue
+                    for a in aarch64 x86_64; do
+                        local dst1="$res_base/$os_id-$a"
+                        mkdir -p "$dst1" "$dst2"
+                        cp -f "$lib" "$dst1/$(basename "$lib")"
+                    done
+                done
+            else
+                local arch_id
+                case "$arch" in
+                    arm64|aarch64) arch_id=aarch64 ;;
+                    x86_64) arch_id=x86_64 ;;
+                    x86) arch_id=x86 ;;
+                    *) arch_id="$arch" ;;
+                esac
+                local src="$prefix_dir/lib"
+                [ -d "$src" ] || src="$prefix_dir/bin"
+                [ -d "$src" ] || return 0
+                for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
+                    [ -e "$lib" ] || continue
+                    local dst1="$res_base/$os_id-$arch_id"
+                    mkdir -p "$dst1" "$dst2"
+                    cp -f "$lib" "$dst1/$(basename "$lib")"
+                done
+            fi
+        ;;
+    esac
+}
+
 build () {
-	if [ $1 != "mpv-android" ] && [ ! -d deps/$1 ]; then
-		printf >&2 '\e[1;31m%s\e[m\n' "Target $1 not found"
+    local t="$1"
+    [ "$t" = "ass" ] && t="libass"
+	if [ $t != "mpv-android" ] && [ ! -d deps/$t ]; then
+		printf >&2 '\e[1;31m%s\e[m\n' "Target $t not found"
 		return 1
 	fi
     # macOS universal: build both arches and merge
@@ -313,19 +395,27 @@ build () {
     fi
 	if [ $nodeps -eq 0 ]; then
 		printf >&2 '\e[1;34m%s\e[m\n' "Preparing $1..."
-		local deps=$(getdeps $1)
+		local deps=$(getdeps $t)
+        if [ "$platform" = "ios" ]; then
+            local filtered=
+            for dep in $deps; do
+                [ "$dep" = "lua" ] && continue
+                filtered="$filtered $dep"
+            done
+            deps="$filtered"
+        fi
 		echo >&2 "Dependencies: $deps"
 		for dep in $deps; do
 			build $dep
 		done
 	fi
 	printf >&2 '\e[1;34m%s\e[m\n' "Building $1..."
-	if [ "$1" == "mpv-android" ]; then
+	if [ "$t" == "mpv-android" ]; then
 		pushd ..
-		BUILDSCRIPT=buildscripts/scripts/$1.sh
+		BUILDSCRIPT=buildscripts/scripts/$t.sh
 	else
-		pushd deps/$1
-		BUILDSCRIPT=../../scripts/$1.sh
+		pushd deps/$t
+		BUILDSCRIPT=../../scripts/$t.sh
 	fi
 	[ $cleanbuild -eq 1 ] && $BUILDSCRIPT clean
 	$BUILDSCRIPT build
@@ -386,6 +476,7 @@ done
 load_target $arch
 setup_prefix
 build $target
+copy_to_resources
 
 [ "$target" == "mpv-android" ] && \
 	ls -lh ../app/build/outputs/apk/{default,api29}/*/*.apk

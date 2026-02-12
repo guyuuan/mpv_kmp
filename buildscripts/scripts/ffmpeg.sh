@@ -31,6 +31,10 @@ target_flags=
 if [ "$ZIG" = "1" ]; then
     target_flags="-target $ZIG_TARGET"
 fi
+dav1d_flag="--disable-libdav1d"
+if pkg-config --exists "dav1d >= 1.0.0"; then
+    dav1d_flag="--enable-libdav1d"
+fi
 
 args=()
 case "$platform" in
@@ -38,10 +42,10 @@ case "$platform" in
         args=(
             --target-os=android --enable-cross-compile
             --cross-prefix=${target_triple}-
-            --cc=$cc_bin --pkg-config=pkg-config --nm=$NM
+            --cc="$cc_bin" --pkg-config=pkg-config --nm=$NM
             --arch=${arch_family} --cpu=$cpu
             --extra-cflags="-I$prefix_dir/include $cpuflags $target_flags" --extra-ldflags="-L$prefix_dir/lib $target_flags"
-            --enable-{jni,mediacodec,mbedtls,libdav1d} --disable-vulkan
+            --enable-jni --enable-mediacodec --enable-mbedtls $dav1d_flag --disable-vulkan
             --disable-static --enable-shared --enable-{gpl,version3}
             --disable-{stripping,doc,programs}
             --disable-{muxers,encoders,devices}
@@ -60,10 +64,10 @@ case "$platform" in
         fi
         args=(
             --target-os=$target_os --enable-cross-compile
-            --cc=$cc_bin --pkg-config=pkg-config --nm=$NM
+            --cc="$cc_bin" --pkg-config=pkg-config --nm=$NM
             --arch=${arch_family}
             --extra-cflags="-I$prefix_dir/include $cpuflags $target_flags -DHAVE_SYSCTL_H=0 -DHAVE_SYSCTL=0" --extra-ldflags="-L$prefix_dir/lib $target_flags" --extra-libs="$addlibs"
-            --enable-{mbedtls,libdav1d} --disable-vulkan
+            --enable-mbedtls $dav1d_flag --disable-vulkan
             --disable-static --enable-shared --enable-{gpl,version3}
             --disable-{stripping,doc}
             --disable-filter=gfxcapture
@@ -71,6 +75,8 @@ case "$platform" in
     ;;
 esac
 CC="$cc_bin" LD="$cc_bin" AR="$AR" STRIP="$STRIP" NM="$NM" PKG_CONFIG="pkg-config" ../configure "${args[@]}"
+[ -f ffbuild/config.h ] && sed -i '' -e 's/^#define HAVE_SYSCTL_H 1/#define HAVE_SYSCTL_H 0/' -e 's/^#define HAVE_SYSCTL 1/#define HAVE_SYSCTL 0/' ffbuild/config.h || true
+[ -f config.h ] && sed -i '' -e 's/^#define HAVE_SYSCTL_H 1/#define HAVE_SYSCTL_H 0/' -e 's/^#define HAVE_SYSCTL 1/#define HAVE_SYSCTL 0/' config.h || true
 
 make -j$cores
 make DESTDIR="$prefix_dir" install
