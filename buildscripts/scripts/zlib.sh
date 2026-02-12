@@ -43,8 +43,7 @@ pcdir="$prefix_dir/lib/pkgconfig"
 mkdir -p "$pcdir"
 version=$(grep -E '^#define[[:space:]]+ZLIB_VERSION' "$srcdir/zlib.h" 2>/dev/null | awk '{print $3}' | tr -d '"')
 [ -z "$version" ] && version="unknown"
-suff="$pcdir/zlib-$platform-$arch_family.pc"
-plain="$pcdir/zlib.pc"
+suff="$pcdir/zlib.pc"
 cat >"$suff" <<EOF
 prefix=/usr/local
 exec_prefix=\${prefix}
@@ -57,4 +56,3 @@ Version: $version
 Libs: -L$prefix_dir/lib -lz
 Cflags: -I$prefix_dir/include
 EOF
-[ -e "$plain" ] || ln -s "$(basename "$suff")" "$plain"
