@@ -29,6 +29,7 @@ meson setup $build --cross-file "$prefix_dir"/crossfile.txt \
     -Dmacos-cocoa-cb=disabled -Dmacos-media-player=disabled -Dmacos-touchbar=disabled \
     -Dgl-cocoa=disabled -Dplain-gl=enabled \
     -Dc_args=-DNO_BUILD_TIMESTAMPS \
+    -Dcocoa=disabled \
     $( [ "$cross_system" = "windows" ] && echo "-Dzlib=disabled" )
 
 ninja -C $build -j$cores
