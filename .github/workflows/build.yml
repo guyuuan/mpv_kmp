@@ -21,10 +21,10 @@ on:
           - x86_64
           - arm64
 
-  push:
-    paths:
-      - 'buildscripts/**'
-      - '.github/workflows/build.yml'
+  # push:
+  #   paths:
+  #     - 'buildscripts/**'
+  #     - '.github/workflows/build.yml'
 
 jobs:
   build:
@@ -43,6 +43,7 @@ jobs:
           echo "$(pwd)/tools/bin" >> $GITHUB_PATH
       - name: Show Xcode SDK version
         run: |
+          system_profiler SPSoftwareDataType
           xcodebuild -version
           xcodebuild -showsdks
 
@@ -108,10 +109,10 @@ jobs:
               echo "Packaging $d..."
               # Zip the lib directory (containing dynamic libs) or bin for Windows
               # Only package dynamic libraries if they exist
-              if find "$d" -type f \( -name "*.dylib" -o -name "*.so" -o -name "*.dll" \) | grep -q .; then
-                 zip -r "../../artifacts/$d.zip" "$d" -i '*.dylib' '*.so' '*.dll'
+              if [ -d "$d/lib" ] && find "$d/lib" -maxdepth 1 -type f \( -name "*.dylib" -o -name "*.so" -o -name "*.dll" \) | grep -q .; then
+                 find "$d/lib" -maxdepth 1 -type f \( -name "*.dylib" -o -name "*.so" -o -name "*.dll" \) -print0 | xargs -0 zip -j "../../artifacts/$d.zip"
               else
-                 echo "No dynamic libraries found in $d, skipping."
+                 echo "No dynamic libraries found in $d/lib, skipping."
               fi
             fi
           done
