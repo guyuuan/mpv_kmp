@@ -10,6 +10,7 @@ target=mpv
 arch=armv7l
 platform=android
 export platform
+export arch
 
 getdeps () {
 	varname="dep_${1//-/_}[*]"
@@ -102,6 +103,10 @@ load_target () {
                     export CFLAGS="${CFLAGS:+$CFLAGS }-target $target_triple -isysroot $sdk"
                     export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-target $target_triple -isysroot $sdk"
                     export LDFLAGS="${LDFLAGS:+$LDFLAGS }-target $target_triple -isysroot $sdk"
+                    export SDKROOT="$sdk"
+                    export CFLAGS="${CFLAGS:+$CFLAGS } -mmacosx-version-min=11.0"
+                    export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS } -mmacosx-version-min=11.0"
+                    export LDFLAGS="${LDFLAGS:+$LDFLAGS } -mmacosx-version-min=11.0"
                 else
                     export CFLAGS="${CFLAGS:+$CFLAGS }-target $target_triple"
                     export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-target $target_triple"

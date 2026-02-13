@@ -31,6 +31,18 @@ target_flags=
 if [ "$ZIG" = "1" ]; then
     target_flags="-target $ZIG_TARGET"
 fi
+# macOS/iOS toolchain flags for configure/linker tests
+darwin_target_flags=
+if [ "$platform" = "macos" ] || [ "$platform" = "ios" ]; then
+    darwin_target_flags="-target $target_triple"
+    if [ -n "$SDKROOT" ] && [ -d "$SDKROOT" ]; then
+        darwin_target_flags="$darwin_target_flags -isysroot $SDKROOT"
+    fi
+    # prefer a reasonable minimum to avoid SDK/ABI mismatches
+    if [ "$platform" = "macos" ]; then
+        darwin_target_flags="$darwin_target_flags -mmacosx-version-min=11.0"
+    fi
+fi
 dav1d_flag="--disable-libdav1d"
 if pkg-config --exists "dav1d >= 1.0.0"; then
     dav1d_flag="--enable-libdav1d"
@@ -66,7 +78,7 @@ case "$platform" in
             --target-os=$target_os --enable-cross-compile
             --cc="$cc_bin" --pkg-config=pkg-config --nm=$NM
             --arch=${arch_family}
-            --extra-cflags="-I$prefix_dir/include $cpuflags $target_flags -DHAVE_SYSCTL_H=0 -DHAVE_SYSCTL=0" --extra-ldflags="-L$prefix_dir/lib $target_flags" --extra-libs="$addlibs"
+            --extra-cflags="-I$prefix_dir/include $cpuflags $target_flags $darwin_target_flags -DHAVE_SYSCTL_H=0 -DHAVE_SYSCTL=0" --extra-ldflags="-L$prefix_dir/lib $target_flags $darwin_target_flags" --extra-libs="$addlibs"
             --enable-mbedtls $dav1d_flag --disable-vulkan
             --disable-static --enable-shared --enable-{gpl,version3}
             --disable-{stripping,doc}

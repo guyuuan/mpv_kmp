@@ -2,6 +2,25 @@ name: Build MPV Libraries
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: "build target platform"
+        options:
+          - all
+          - android
+          - macos
+          - linux
+          - windows
+          - ios
+        default: "all"
+      arch:
+        description: "build target cpu arch"
+        default: "all"
+        options:
+          - all
+          - x86_64
+          - arm64
+
   push:
     paths:
       - 'buildscripts/**'
@@ -20,6 +39,8 @@ jobs:
           brew update
           brew install automake autoconf libtool pkg-config coreutils gnu-sed wget meson ninja llvm zig nasm
           echo "$(brew --prefix)/bin" >> $GITHUB_PATH
+          echo "$(pwd)/buildscripts/bin" >> $GITHUB_PATH
+          echo "$(pwd)/tools/bin" >> $GITHUB_PATH
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -33,46 +54,45 @@ jobs:
         run: |
           cd buildscripts
           ./download.sh
-
-      - name: Build Android arm64
+      - name: Build Selected Targets
         run: |
-          buildscripts/buildall.sh --platform android --arch arm64
-
-      - name: Build Android x86_64
-        run: |
-          buildscripts/buildall.sh --platform android --arch x86_64
-
-      - name: Build Android armv7l
-        run: |
-          buildscripts/buildall.sh --platform android --arch armv7l
-
-      - name: Build macOS X86_64
-        run: |
-          buildscripts/buildall.sh --platform macos --arch x86_64
-
-      - name: Build macOS ARM64
-        run: |
-          buildscripts/buildall.sh --platform macos --arch arm64
-
-      - name: Build iOS arm64
-        run: |
-          buildscripts/buildall.sh --platform ios --arch arm64
-
-      - name: Build iOS Simulator (x86_64)
-        run: |
-          buildscripts/buildall.sh --platform ios --arch x86_64
-
-      - name: Build Linux x86_64
-        run: |
-          buildscripts/buildall.sh --platform linux --arch x86_64
-
-      - name: Build Linux aarch64
-        run: |
-          buildscripts/buildall.sh --platform linux --arch aarch64
-
-      - name: Build Windows x86_64
-        run: |
-          buildscripts/buildall.sh --platform windows --arch x86_64
+          PLATFORM_INPUT="${{ github.event.inputs.platform }}"
+          ARCH_INPUT="${{ github.event.inputs.arch }}"
+          if [ -z "$PLATFORM_INPUT" ]; then PLATFORM_INPUT="all"; fi
+          if [ -z "$ARCH_INPUT" ]; then ARCH_INPUT="all"; fi
+          if [ "$PLATFORM_INPUT" = "windows" ] && [ "$ARCH_INPUT" = "arm64" ]; then
+            echo "windows only supports x86_64"
+            exit 1
+          fi
+          select_platforms() {
+            case "$1" in
+              all) echo "android ios linux macos windows" ;;
+              android|ios|linux|macos|windows) echo "$1" ;;
+              *) echo "invalid platform: $1"; exit 1 ;;
+            esac
+          }
+          select_archs() {
+            case "$1" in
+              all) echo "x86_64 arm64" ;;
+              x86_64|arm64) echo "$1" ;;
+              *) echo "invalid arch: $1"; exit 1 ;;
+            esac
+          }
+          platforms=$(select_platforms "$PLATFORM_INPUT")
+          archs=$(select_archs "$ARCH_INPUT")
+          for p in $platforms; do
+            if [ "$p" = "windows" ]; then
+              for a in $archs; do
+                if [ "$a" = "x86_64" ]; then
+                  buildscripts/buildall.sh --platform "$p" --arch "$a"
+                fi
+              done
+            else
+              for a in $archs; do
+                buildscripts/buildall.sh --platform "$p" --arch "$a"
+              done
+            fi
+          done
 
       - name: Package Artifacts
         run: |

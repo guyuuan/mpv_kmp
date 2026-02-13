@@ -20,6 +20,7 @@ arch_family=${target_triple%%-*}
 host_triple=${target_triple:-$ndk_triple}
 [ "$platform" = "ios" ] && [ "$arch_family" = "x86_64" ] && host_triple="x86_64-apple-darwin"
 [ "$platform" = "ios" ] && { [ "$arch_family" = "arm64" ] || [ "$arch_family" = "aarch64" ]; } && host_triple="aarch64-apple-darwin"
+[ "$platform" = "macos" ] && [ "$arch_family" = "arm64" ] && host_triple="aarch64-apple-darwin"
 
 ../configure \
 	--host=$host_triple --with-pic \
