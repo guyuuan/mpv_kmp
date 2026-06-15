@@ -8,6 +8,8 @@ import com.sun.jna.ptr.PointerByReference
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.swing.SwingUtilities
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,6 +17,17 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
+
+import com.sun.jna.ptr.IntByReference
+import com.sun.jna.Callback
+import com.sun.jna.NativeLibrary
+
+private fun nativeTrace(stage: String) {
+    val t = Thread.currentThread()
+    println(
+        "NativeTrace[$stage] thread=${t.name}(${t.id}) edt=${SwingUtilities.isEventDispatchThread()} os=${System.getProperty("os.name")} arch=${System.getProperty("os.arch")}"
+    )
+}
 
 class mpv_event : Structure() {
     @JvmField var event_id: Int = 0
@@ -46,12 +59,41 @@ class mpv_render_param : Structure() {
     }
 }
 
+class mpv_opengl_fbo : Structure() {
+    @JvmField var fbo: Int = 0
+    @JvmField var w: Int = 0
+    @JvmField var h: Int = 0
+    @JvmField var internal_format: Int = 0
+    override fun getFieldOrder(): List<String> = listOf("fbo", "w", "h", "internal_format")
+}
+
+interface mpv_render_update_fn : com.sun.jna.Callback {
+    fun invoke(ctx: Pointer?)
+}
+
+interface mpv_opengl_get_proc_address_fn : Callback {
+    fun invoke(ctx: Pointer?, name: String): Pointer?
+}
+
+class mpv_opengl_init_params : Structure() {
+    @JvmField var get_proc_address: mpv_opengl_get_proc_address_fn? = null
+    @JvmField var get_proc_address_ctx: Pointer? = null
+    @JvmField var extra_exts: String? = null
+
+    override fun getFieldOrder() = listOf("get_proc_address", "get_proc_address_ctx", "extra_exts")
+}
+
 private interface MPVLibrary : Library {
+    fun mpv_client_api_version(): Long
     fun mpv_create(): Pointer
+    fun mpv_set_option_string(ctx: Pointer, name: String, data: String): Int
     fun mpv_initialize(ctx: Pointer): Int
+    fun mpv_error_string(error: Int): String?
+    fun mpv_request_log_messages(ctx: Pointer, min_level: String): Int
     fun mpv_command_string(ctx: Pointer, args: String): Int
     fun mpv_set_property_string(ctx: Pointer, name: String, data: String): Int
-    fun mpv_get_property_string(ctx: Pointer, name: String, out: PointerByReference): Int
+    fun mpv_set_property(ctx: Pointer, name: String, format: Int, data: Pointer): Int
+    fun mpv_get_property(ctx: Pointer, name: String, format: Int, data: PointerByReference): Int
     fun mpv_observe_property(ctx: Pointer, reply_userdata: Long, name: String, format: Int): Int
     fun mpv_unobserve_property(ctx: Pointer, registered_reply_userdata: Long): Int
     fun mpv_wait_event(ctx: Pointer, timeout: Double): Pointer
@@ -63,6 +105,47 @@ private interface MPVLibrary : Library {
     fun mpv_render_context_render(ctx: Pointer, params: Pointer): Int
     fun mpv_render_context_set_update_callback(ctx: Pointer, cb: com.sun.jna.Callback?, data: Pointer?)
     fun mpv_render_context_report_swap(ctx: Pointer)
+}
+
+class mpv_event_log_message : Structure() {
+    @JvmField var prefix: String = ""
+    @JvmField var level: String = ""
+    @JvmField var text: String = ""
+    @JvmField var log_level: Int = 0
+    override fun getFieldOrder(): List<String> {
+        return listOf("prefix", "level", "text", "log_level")
+    }
+}
+
+private object LocaleSetter {
+    @Volatile private var initialized = false
+
+    fun setNumericCLocale() {
+        if (initialized) {
+            nativeTrace("locale.skip.already_initialized")
+            return
+        }
+        nativeTrace("locale.begin")
+        val libs = if (osId() == "windows") listOf("msvcrt") else listOf("c", "System", "System.B")
+        val category = 4
+        for (name in libs) {
+            try {
+                nativeTrace("locale.try.$name")
+                val lib = NativeLibrary.getInstance(name)
+                val fn = lib.getFunction("setlocale")
+                val ret = fn.invokePointer(arrayOf<Any>(category, "C"))
+                nativeTrace("locale.call.$name.ret=${ret != null}")
+                if (ret != null) {
+                    initialized = true
+                    nativeTrace("locale.success.$name")
+                    return
+                }
+            } catch (e: Throwable) {
+                println("NativeTrace[locale.fail.$name] $e")
+            }
+        }
+        nativeTrace("locale.end.no_success")
+    }
 }
 
 private fun osId(): String {
@@ -78,97 +161,171 @@ private fun archId(): String {
     val arch = System.getProperty("os.arch").lowercase()
     return when {
         arch.contains("aarch64") || arch.contains("arm64") -> "aarch64"
-        arch.contains("x86_64") || arch.contains("amd64") -> "x86_64"
+        arch.contains("x86_64") || arch.contains("amd64") -> "x86-64"
         arch.contains("x86") -> "x86"
         else -> arch
     }
 }
 private fun libNameFor(os: String): String {
     return when (os) {
-        "darwin" -> "libNativeVideoPlayer.dylib"
-        "linux" -> "libNativeVideoPlayer.so"
-        "windows" -> "NativeVideoPlayer.dll"
-        else -> "NativeVideoPlayer"
+        "darwin" -> "libmpv.dylib"
+        "linux" -> "libmpv.so"
+        "windows" -> "mpv.dll"
+        else -> "mpv"
     }
 }
 private fun extractLibFromResources(): String? {
     val os = osId()
+    if (os != "darwin") return null // Only macOS needs this bundle extraction for now
+
     val arch = archId()
-    val name = libNameFor(os)
-    val rel = "$os-$arch/$name"
-    val stream = MpvPlayer::class.java.classLoader.getResourceAsStream(rel) ?: return null
-    val suffix = name.substringAfterLast('.', "")
-    val tmp = File.createTempFile("libmpv", if (suffix.isNotEmpty()) ".$suffix" else "")
-    tmp.deleteOnExit()
-    stream.use {
-        Files.copy(it, tmp.toPath(), StandardCopyOption.REPLACE_EXISTING)
+    val platform = "$os-$arch" // e.g. darwin-x86-64 or darwin-aarch64
+
+    // List of files to extract. Ideally this should be dynamic, but hardcoding ensures we get everything needed.
+    val commonLibs = listOf(
+        "libmpv.dylib",
+        "libmpv.2.dylib"
+    )
+
+    val arm64Libs = listOf(
+        "libavcodec-macos-arm64.62.23.103.dylib", "libavcodec-macos-arm64.62.dylib", "libavcodec-macos-arm64.dylib",
+        "libavdevice-macos-arm64.62.2.100.dylib", "libavdevice-macos-arm64.62.dylib", "libavdevice-macos-arm64.dylib",
+        "libavfilter-macos-arm64.11.12.100.dylib", "libavfilter-macos-arm64.11.dylib", "libavfilter-macos-arm64.dylib",
+        "libavformat-macos-arm64.62.8.102.dylib", "libavformat-macos-arm64.62.dylib", "libavformat-macos-arm64.dylib",
+        "libavutil-macos-arm64.60.24.100.dylib", "libavutil-macos-arm64.60.dylib", "libavutil-macos-arm64.dylib",
+        "libswresample-macos-arm64.6.2.100.dylib", "libswresample-macos-arm64.6.dylib", "libswresample-macos-arm64.dylib",
+        "libswscale-macos-arm64.9.3.100.dylib", "libswscale-macos-arm64.9.dylib", "libswscale-macos-arm64.dylib"
+    )
+
+    val x64Libs = listOf(
+        "libavcodec-macos-x86_64.62.23.103.dylib", "libavcodec-macos-x86_64.62.dylib", "libavcodec-macos-x86_64.dylib",
+        "libavdevice-macos-x86_64.62.2.100.dylib", "libavdevice-macos-x86_64.62.dylib", "libavdevice-macos-x86_64.dylib",
+        "libavfilter-macos-x86_64.11.12.100.dylib", "libavfilter-macos-x86_64.11.dylib", "libavfilter-macos-x86_64.dylib",
+        "libavformat-macos-x86_64.62.8.102.dylib", "libavformat-macos-x86_64.62.dylib", "libavformat-macos-x86_64.dylib",
+        "libavutil-macos-x86_64.60.24.100.dylib", "libavutil-macos-x86_64.60.dylib", "libavutil-macos-x86_64.dylib",
+        "libswresample-macos-x86_64.6.2.100.dylib", "libswresample-macos-x86_64.6.dylib", "libswresample-macos-x86_64.dylib",
+        "libswscale-macos-x86_64.9.3.100.dylib", "libswscale-macos-x86_64.9.dylib", "libswscale-macos-x86_64.dylib"
+    )
+
+    val libs = commonLibs + if (arch == "aarch64") arm64Libs else x64Libs
+
+    // Create temp directory
+    val tmpDir = Files.createTempDirectory("mpv-libs-$platform").toFile()
+    tmpDir.deleteOnExit()
+
+    var mainLibPath: String? = null
+    var sonameLibPath: String? = null
+
+    for (name in libs) {
+        val resourcePath = "/$platform/$name"
+        val stream = MpvPlayer::class.java.getResourceAsStream(resourcePath)
+        if (stream == null) {
+             println("Resource not found: $resourcePath")
+            continue
+        }
+
+        val dest = File(tmpDir, name)
+        dest.deleteOnExit()
+
+        try {
+            Files.copy(stream, dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            println("NativeTrace[extract.copy] ${dest.absolutePath} size=${dest.length()}")
+            if (name == "libmpv.dylib") {
+                mainLibPath = dest.absolutePath
+            }
+            if (name == "libmpv.2.dylib") {
+                sonameLibPath = dest.absolutePath
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            stream.close()
+        }
     }
-    return tmp.absolutePath
+
+    // If we found the main lib, return it. Otherwise fall back to JNA's default search.
+    if (sonameLibPath != null || mainLibPath != null) {
+        val selected = sonameLibPath ?: mainLibPath!!
+        println("Extracted mpv libs to $tmpDir, main lib: $selected")
+        return selected
+    } else {
+        println("Failed to extract libmpv.dylib from resources.")
+        return null
+    }
+}
+
+private interface GLLibrary : Library {
+    fun glGetIntegerv(pname: Int, params: IntByReference)
+}
+
+private object GL {
+    val libName: String? = try {
+        val os = System.getProperty("os.name").lowercase()
+        when {
+            os.contains("mac") -> "OpenGL"
+            os.contains("win") -> "opengl32"
+            os.contains("linux") -> "GL"
+            else -> "GL"
+        }
+    } catch (e: Throwable) {
+        null
+    }
+
+    val nativeLib: NativeLibrary? = if (libName != null) {
+        try { NativeLibrary.getInstance(libName) } catch(e: Throwable) { null }
+    } else null
+
+    val lib: GLLibrary? = if (libName != null) {
+        try {
+            Native.load(libName, GLLibrary::class.java)
+        } catch (e: Throwable) {
+            println("Failed to load OpenGL library: $e")
+            null
+        }
+    } else null
 }
 
 private object MPV {
-    val lib: MPVLibrary = run {
-        try {
-            Native.load("mpv", MPVLibrary::class.java)
-        } catch (_: Throwable) {
-            val os = osId()
-            val res = extractLibFromResources()
-            if (res != null) {
-                try {
-                    System.load(res)
-                } catch (_: Throwable) {}
-                try {
-                    Native.load("mpv", MPVLibrary::class.java)
-                } catch (_: Throwable) {
-                    try {
-                        Native.load(res, MPVLibrary::class.java)
-                    } catch (_: Throwable) {}
-                }
-            }
-            var loaded: MPVLibrary? = null
-            if (os == "windows") {
-                val names = listOf("libmpv-2", "libmpv", "mpv", "libmpv-2.dll", "libmpv.dll", "mpv.dll")
-                for (n in names) {
-                    try {
-                        loaded = Native.load(n, MPVLibrary::class.java)
-                        break
-                    } catch (_: Throwable) {}
-                }
-                if (loaded == null) {
-                    val arch = archId()
-                    val base = System.getProperty("user.dir") ?: ""
-                    val dir = File("$base/buildscripts/prefix/windows-$arch/bin")
-                    if (dir.isDirectory) {
-                        for (f in listOf("libmpv-2.dll", "libmpv.dll", "mpv.dll")) {
-                            val p = File(dir, f).absolutePath
-                            try {
-                                loaded = Native.load(p, MPVLibrary::class.java)
-                                break
-                            } catch (_: Throwable) {}
-                        }
-                    }
-                }
-            } else {
-                val paths = listOf(
-                    "/opt/homebrew/lib/libmpv.dylib",
-                    "/usr/local/lib/libmpv.dylib",
-                    "libmpv.dylib"
-                )
-                for (p in paths) {
-                    try {
-                        loaded = Native.load(p, MPVLibrary::class.java)
-                        break
-                    } catch (_: Throwable) {}
-                }
-            }
-            requireNotNull(loaded)
-        }
-    }
+     private fun probe(libKey: String) {
+         try {
+             val raw = NativeLibrary.getInstance(libKey)
+             val createAddr = raw.getFunction("mpv_create").hashCode()
+             val verFn = raw.getFunction("mpv_client_api_version")
+             val ver = verFn.invokeLong(emptyArray())
+             println("NativeTrace[mpv.probe] key=$libKey mpv_create=0x${createAddr.toString(16)} api=$ver")
+         } catch (e: Throwable) {
+             println("NativeTrace[mpv.probe.fail] key=$libKey err=$e")
+         }
+     }
+
+     val lib: MPVLibrary by lazy {
+         nativeTrace("mpv.lib.lazy.begin")
+         // Try loading from extracted resources first (fixes macOS dependency issues)
+         val extractedPath = extractLibFromResources()
+         if (extractedPath != null) {
+             println("NativeTrace[mpv.lib.load.extracted] path=$extractedPath")
+             // Preload dependencies if needed (sometimes helps with dlopen)
+             // But generally, loading the main lib should work if rpath/loader_path is correct.
+             val loaded = Native.load(extractedPath, MPVLibrary::class.java)
+             nativeTrace("mpv.lib.load.extracted.success")
+             probe(extractedPath)
+             loaded
+         } else {
+             nativeTrace("mpv.lib.load.system.try")
+             val loaded = Native.load("mpv", MPVLibrary::class.java)
+             nativeTrace("mpv.lib.load.system.success")
+             probe("mpv")
+             loaded
+         }
+     }
 }
 
 internal interface RenderContextSupport {
     fun createRenderContext(): Boolean
     fun freeRenderContext()
+    fun render(fbo: Int, width: Int, height: Int) // Keep for backward compat or non-SW
+    fun renderSw(width: Int, height: Int, stride: Int, format: String, buffer: Pointer)
+    fun setRenderCallback(callback: () -> Unit)
 }
 
 private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
@@ -178,26 +335,90 @@ private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
     private var scope: CoroutineScope? = null
     private var eventJob: Job? = null
     private var renderCtx: Pointer? = null
+    private var renderCallbackAdapter: mpv_render_update_fn? = null
+    private var initParams: mpv_opengl_init_params? = null
+    private var getProcAddrCallback: mpv_opengl_get_proc_address_fn? = null
 
     override fun initialize(): Boolean {
         if (ctx != null) return true
-        ctx = MPV.lib.mpv_create()
-        if (ctx == null) return false
-        val r = MPV.lib.mpv_initialize(ctx!!)
-        return r == 0
+        val rid = System.nanoTime().toString(16)
+        nativeTrace("init.$rid.begin")
+        LocaleSetter.setNumericCLocale()
+        val initBlock = {
+            nativeTrace("init.$rid.block.enter")
+            nativeTrace("init.$rid.before.client_api_version")
+            val apiVersion = MPV.lib.mpv_client_api_version()
+            nativeTrace("init.$rid.after.client_api_version=$apiVersion")
+            nativeTrace("init.$rid.before.mpv_create")
+            ctx = MPV.lib.mpv_create()
+            nativeTrace("init.$rid.after.mpv_create.ctx=${ctx != null}")
+            if (ctx == null) {
+                false
+            } else {
+                val c = ctx!!
+                nativeTrace("init.$rid.before.set_option.vo")
+                val voRet = MPV.lib.mpv_set_option_string(c, "vo", "libmpv")
+                nativeTrace("init.$rid.after.set_option.vo.ret=$voRet")
+                if (voRet != 0) {
+                    val err = MPV.lib.mpv_error_string(voRet) ?: "unknown"
+                    println("JvmMpvPlayer: failed to set option vo=libmpv: $voRet ($err)")
+                    MPV.lib.mpv_terminate_destroy(c)
+                    ctx = null
+                    false
+                } else {
+                    nativeTrace("init.$rid.before.mpv_initialize")
+                    val r = MPV.lib.mpv_initialize(c)
+                    nativeTrace("init.$rid.after.mpv_initialize.ret=$r")
+                    if (r != 0) {
+                        val err = MPV.lib.mpv_error_string(r) ?: "unknown"
+                        println("JvmMpvPlayer: mpv_initialize failed: $r ($err)")
+                        MPV.lib.mpv_terminate_destroy(c)
+                        ctx = null
+                        false
+                    } else {
+                        nativeTrace("init.$rid.before.request_log")
+                        MPV.lib.mpv_request_log_messages(c, "v")
+                        nativeTrace("init.$rid.after.request_log")
+                        true
+                    }
+                }
+            }
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            nativeTrace("init.$rid.run.on_edt.direct")
+            return initBlock()
+        }
+        val ok = AtomicBoolean(false)
+        return try {
+            nativeTrace("init.$rid.schedule.invokeAndWait")
+            SwingUtilities.invokeAndWait {
+                nativeTrace("init.$rid.invokeAndWait.enter")
+                ok.set(initBlock())
+                nativeTrace("init.$rid.invokeAndWait.exit.ok=${ok.get()}")
+            }
+            nativeTrace("init.$rid.end.ok=${ok.get()}")
+            ok.get()
+        } catch (e: Throwable) {
+            println("JvmMpvPlayer: initialize on EDT failed: $e")
+            return false
+        }
     }
 
     override fun attach(view: Any) {
         val c = ctx ?: return
         if (view is Long) {
             val wid = view
-            MPV.lib.mpv_set_property_string(c, "wid", wid.toString())
+            val mem = com.sun.jna.Memory(8)
+            mem.setLong(0, wid)
+            MPV.lib.mpv_set_property(c, "wid", 4, mem)
         }
     }
 
     override fun detach() {
         val c = ctx ?: return
-        MPV.lib.mpv_set_property_string(c, "wid", "0")
+        val mem = com.sun.jna.Memory(8)
+        mem.setLong(0, 0L)
+        MPV.lib.mpv_set_property(c, "wid", 4, mem)
     }
 
     override fun commandString(cmd: String): Int {
@@ -257,7 +478,7 @@ private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
     override fun getProperty(name: String): String? {
         val c = ctx ?: return null
         val ref = PointerByReference()
-        val r = MPV.lib.mpv_get_property_string(c, name, ref)
+        val r = MPV.lib.mpv_get_property(c, name, 1, ref)
         if (r < 0) return null
         val p = ref.value ?: return null
         val s = p.getString(0)
@@ -268,12 +489,17 @@ private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
     override fun terminate() {
         val c = ctx ?: return
         running = false
+        eventJob?.cancel()
         MPV.lib.mpv_wakeup(c) // Wake up wait_event
+        renderCtx?.let {
+            MPV.lib.mpv_render_context_set_update_callback(it, null, null)
+            MPV.lib.mpv_render_context_free(it)
+            renderCtx = null
+        }
         MPV.lib.mpv_terminate_destroy(c)
         ctx = null
-        eventJob?.cancel()
         eventJob = null
-        renderCtx?.let { MPV.lib.mpv_render_context_free(it); renderCtx = null }
+        renderCallbackAdapter = null
     }
 
     private fun startEventLoop() {
@@ -302,12 +528,18 @@ private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
         val type = mapEventType(event.event_id)
         var name: String? = null
         var value: String? = null
-        
+
+        if (type == MpvEventType.LogMessage && event.data != null) {
+            val lm = Structure.newInstance(mpv_event_log_message::class.java, event.data)
+            lm.read()
+            println("mpv[${lm.level}] ${lm.prefix}: ${lm.text}")
+        }
+
         if (type == MpvEventType.PropertyChange && event.data != null) {
              val prop = Structure.newInstance(mpv_event_property::class.java, event.data)
              prop.read()
              name = prop.name
-             if (prop.format == 1 && prop.data != null) { // MPV_FORMAT_STRING
+             if (prop.format == 1 && prop.data != null) {
                  value = prop.data!!.getString(0)
              }
         }
@@ -349,26 +581,107 @@ private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
     override fun createRenderContext(): Boolean {
         val c = ctx ?: return false
         if (renderCtx != null) return true
+
         val api = com.sun.jna.Memory(8)
-        api.setString(0, "opengl")
+        api.setString(0, "sw") // Force SW rendering on macOS/Metal environment
+
         val base = mpv_render_param()
         val arr = base.toArray(2) as Array<mpv_render_param>
-        arr[0].type = 1
+
+        arr[0].type = 1 // MPV_RENDER_PARAM_API_TYPE
         arr[0].data = api
         arr[0].write()
+
         arr[1].type = 0
         arr[1].data = null
         arr[1].write()
+
         val out = PointerByReference()
+        println("JvmMpvPlayer: Calling mpv_render_context_create with sw...")
         val r = MPV.lib.mpv_render_context_create(out, c, arr[0].pointer)
         if (r == 0) {
             renderCtx = out.value
+            println("JvmMpvPlayer: mpv_render_context_create success. ctx => $renderCtx")
             return true
         }
+        val err = MPV.lib.mpv_error_string(r) ?: "unknown"
+        val vo = getProperty("vo")
+        println("JvmMpvPlayer: mpv_render_context_create failed: $r ($err), vo=$vo")
         return false
     }
+
     override fun freeRenderContext() {
+        println("JvmMpvPlayer: Freeing RenderContext.")
         renderCtx?.let { MPV.lib.mpv_render_context_free(it); renderCtx = null }
+    }
+
+    override fun render(fbo: Int, width: Int, height: Int) {
+         // No-op for SW mode
+    }
+
+    override fun renderSw(width: Int, height: Int, stride: Int, format: String, buffer: Pointer) {
+        val ctx = renderCtx ?: return
+        if (width <= 0 || height <= 0 || stride <= 0) return
+
+        val sizePtr = com.sun.jna.Memory(8)
+        sizePtr.setInt(0, width)
+        sizePtr.setInt(4, height)
+
+        val formatStrPtr = com.sun.jna.Memory(format.length + 1L)
+        formatStrPtr.setString(0, format)
+
+        val stridePtr = com.sun.jna.Memory(com.sun.jna.Native.SIZE_T_SIZE.toLong())
+        if (com.sun.jna.Native.SIZE_T_SIZE == 8) {
+            stridePtr.setLong(0, stride.toLong())
+        } else {
+            stridePtr.setInt(0, stride)
+        }
+
+        val params = mpv_render_param()
+        val arr = params.toArray(5) as Array<mpv_render_param>
+
+        arr[0].type = 17 // MPV_RENDER_PARAM_SW_SIZE
+        arr[0].data = sizePtr
+        arr[0].write()
+
+        arr[1].type = 18 // MPV_RENDER_PARAM_SW_FORMAT
+        arr[1].data = formatStrPtr // char*
+        arr[1].write()
+
+        arr[2].type = 19 // MPV_RENDER_PARAM_SW_STRIDE
+        arr[2].data = stridePtr // size_t*
+        arr[2].write()
+
+        arr[3].type = 20 // MPV_RENDER_PARAM_SW_POINTER
+        arr[3].data = buffer // void*
+        arr[3].write()
+
+        arr[4].type = 0
+        arr[4].data = null
+        arr[4].write()
+
+        // Debug params
+        // println("JvmMpvPlayer: renderSw: $width x $height, stride=$stride, format=$format, buf=$buffer")
+
+        val err = MPV.lib.mpv_render_context_render(ctx, arr[0].pointer)
+        if (err != 0) {
+             println("JvmMpvPlayer: mpv_render_context_render failed: $err")
+            return
+        }
+
+        MPV.lib.mpv_render_context_report_swap(ctx)
+    }
+
+    override fun setRenderCallback(callback: () -> Unit) {
+        val ctx = renderCtx ?: return
+        val adapter = object : mpv_render_update_fn {
+            override fun invoke(ctx: Pointer?) {
+                if (!running) return
+                callback()
+            }
+        }
+        this.renderCallbackAdapter = adapter
+        MPV.lib.mpv_render_context_set_update_callback(ctx, adapter, null)
     }
 }
 

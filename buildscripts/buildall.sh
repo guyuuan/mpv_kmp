@@ -144,6 +144,12 @@ load_target () {
                 export OBJCXX="xcrun --sdk iphoneos clang++ -arch arm64 -miphoneos-version-min=13.0"
             fi
             export cross_system=darwin
+            if [ -n "$sdk" ] && [ -d "$sdk" ]; then
+                export SDKROOT="$sdk"
+                export CFLAGS="${CFLAGS:+$CFLAGS }-isysroot $sdk"
+                export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-isysroot $sdk"
+                export LDFLAGS="${LDFLAGS:+$LDFLAGS }-isysroot $sdk"
+            fi
             export CFLAGS="-fembed-bitcode"
             export CXXFLAGS="-fembed-bitcode"
         ;;
@@ -353,7 +359,7 @@ copy_to_resources () {
                 local arch_id
                 case "$arch" in
                     arm64|aarch64) arch_id=aarch64 ;;
-                    x86_64) arch_id=x86_64 ;;
+                    x86_64) arch_id=x86-64 ;;
                     x86) arch_id=x86 ;;
                     *) arch_id="$arch" ;;
                 esac
@@ -484,8 +490,5 @@ load_target $arch
 setup_prefix
 build $target
 copy_to_resources
-
-[ "$target" == "mpv-android" ] && \
-	ls -lh ../app/build/outputs/apk/{default,api29}/*/*.apk
 
 exit 0

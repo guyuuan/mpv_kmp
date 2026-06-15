@@ -21,7 +21,7 @@ import com.guyuuan.mpv_kmp.rememberMpvPlayerState
 fun App() {
     MaterialTheme {
         val playerState = rememberMpvPlayerState()
-        val videoUrl = "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+        val videoUrl = "http://vjs.zencdn.net/v/oceans.mp4"
 
         Column(modifier = Modifier.fillMaxSize()) {
             MpvComposeView(

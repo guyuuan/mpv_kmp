@@ -3,6 +3,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary)
+    alias(libs.plugins.composeMultiplatform)
+    alias(libs.plugins.composeCompiler)
 }
 
 kotlin {
@@ -22,6 +24,7 @@ kotlin {
         }
         iosTarget.compilations.getByName("main").cinterops.create("mpv") {
             defFile("src/nativeInterop/cinterop/mpv.def")
+            includeDirs(project.file("libs/include"))
         }
     }
     

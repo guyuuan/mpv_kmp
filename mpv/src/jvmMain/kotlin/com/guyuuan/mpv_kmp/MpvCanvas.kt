@@ -29,11 +29,11 @@ class MpvCanvas : Canvas() {
     }
 
     private fun attachPlayer() {
+        println("attach player $player")
         val p = player ?: return
-        // Get native window handle
-        // Note: component must be displayable (added to a peer)
         try {
             val wid = Native.getComponentID(this)
+            println("attach to $wid")
             if (wid != 0L) {
                 p.attach(wid)
             }
