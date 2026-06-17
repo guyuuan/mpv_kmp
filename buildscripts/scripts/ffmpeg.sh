@@ -86,11 +86,22 @@ case "$platform" in
         )
     ;;
 esac
-CC="$cc_bin" LD="$cc_bin" AR="$AR" STRIP="$STRIP" NM="$NM" PKG_CONFIG="pkg-config" ../configure "${args[@]}"
+CC="$cc_bin" LD="$cc_bin" AR="$AR" STRIP="$STRIP" NM="$NM" PKG_CONFIG="pkg-config" build_suffix= ../configure "${args[@]}"
 [ -f ffbuild/config.h ] && sed -i '' -e 's/^#define HAVE_SYSCTL_H 1/#define HAVE_SYSCTL_H 0/' -e 's/^#define HAVE_SYSCTL 1/#define HAVE_SYSCTL 0/' ffbuild/config.h || true
 [ -f config.h ] && sed -i '' -e 's/^#define HAVE_SYSCTL_H 1/#define HAVE_SYSCTL_H 0/' -e 's/^#define HAVE_SYSCTL 1/#define HAVE_SYSCTL 0/' config.h || true
 
 make -j$cores
+rm -f "$prefix_dir"/lib/libavcodec* "$prefix_dir"/lib/libavdevice* \
+      "$prefix_dir"/lib/libavfilter* "$prefix_dir"/lib/libavformat* \
+      "$prefix_dir"/lib/libavutil* "$prefix_dir"/lib/libswresample* \
+      "$prefix_dir"/lib/libswscale* "$prefix_dir"/lib/pkgconfig/libavcodec* \
+      "$prefix_dir"/lib/pkgconfig/libavdevice* "$prefix_dir"/lib/pkgconfig/libavfilter* \
+      "$prefix_dir"/lib/pkgconfig/libavformat* "$prefix_dir"/lib/pkgconfig/libavutil* \
+      "$prefix_dir"/lib/pkgconfig/libswresample* "$prefix_dir"/lib/pkgconfig/libswscale* \
+      "$prefix_dir"/bin/avcodec* "$prefix_dir"/bin/avdevice* \
+      "$prefix_dir"/bin/avfilter* "$prefix_dir"/bin/avformat* \
+      "$prefix_dir"/bin/avutil* "$prefix_dir"/bin/swresample* \
+      "$prefix_dir"/bin/swscale*
 make DESTDIR="$prefix_dir" install
 pcdir="$prefix_dir/lib/pkgconfig"
 if [ -d "$pcdir" ]; then

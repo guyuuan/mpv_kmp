@@ -28,13 +28,12 @@ A matching NDK version (inside the SDK) will be picked up automatically or downl
 Run `buildall.sh` with `--clean` to clean the build directories before building.
 For a guaranteed clean build also run `rm -rf prefix` beforehand.
 
-By default this will build only for 32-bit ARM (`armv7l`).
-You probably want to build for AArch64 too, and perhaps Intel x86.
+By default `buildall.sh` builds the Android ARM64 target.
+The top-level `build.sh` builds the default release set: ARM64 and x86_64 for Android, macOS, and Linux, plus x86_64 for Windows.
 
 To do this run one (or more) of these commands **before** ./buildall.sh:
 ```sh
 ./buildall.sh --arch arm64 mpv
-./buildall.sh --arch x86 mpv
 ./buildall.sh --arch x86_64 mpv
 ```
 

@@ -7,7 +7,7 @@ cleanbuild=0
 nodeps=0
 clang=1
 target=mpv
-arch=armv7l
+arch=arm64
 platform=android
 export platform
 export arch
@@ -333,6 +333,37 @@ CROSSFILE
 	fi
 }
 
+compile_macos_jvm_shim () {
+    [ "$platform" = "macos" ] || return 0
+
+    local arch_id="$1"
+    local dst_dir="$2"
+    local shim_src="$PWD/../mpv/src/jvmMain/native/macos_shim.c"
+    local shim_out="$dst_dir/libmpv_kmp_macos_shim.dylib"
+
+    [ -f "$shim_src" ] || {
+        echo "Missing macOS JVM shim source: $shim_src" >&2
+        return 1
+    }
+
+    local clang_arch
+    case "$arch_id" in
+        aarch64) clang_arch=arm64 ;;
+        x86-64) clang_arch=x86_64 ;;
+        *) echo "Unsupported macOS shim arch: $arch_id" >&2; return 1 ;;
+    esac
+
+    local macos_sdk
+    macos_sdk=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)
+    if [ -n "$macos_sdk" ] && [ -d "$macos_sdk" ]; then
+        clang -dynamiclib -arch "$clang_arch" -isysroot "$macos_sdk" \
+            -mmacosx-version-min=11.0 "$shim_src" -o "$shim_out"
+    else
+        clang -dynamiclib -arch "$clang_arch" \
+            -mmacosx-version-min=11.0 "$shim_src" -o "$shim_out"
+    fi
+}
+
 copy_to_resources () {
     case "$platform" in
         macos|linux|windows)
@@ -347,14 +378,20 @@ copy_to_resources () {
             if [ "$platform" = "macos" ] && [ "$arch" = "universal" ]; then
                 local src="$PWD/prefix/macos-universal/lib"
                 [ -d "$src" ] || return 0
+                for a in aarch64 x86-64; do
+                    local dst1="$res_base/$os_id-$a"
+                    mkdir -p "$dst1"
+                    rm -f "$dst1"/*.dylib "$dst1"/*.so "$dst1"/*.dll
+                done
                 for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
                     [ -e "$lib" ] || continue
-                    for a in aarch64 x86_64; do
+                    for a in aarch64 x86-64; do
                         local dst1="$res_base/$os_id-$a"
-                        mkdir -p "$dst1"
                         cp -f "$lib" "$dst1/$(basename "$lib")"
                     done
                 done
+                compile_macos_jvm_shim aarch64 "$res_base/$os_id-aarch64"
+                compile_macos_jvm_shim x86-64 "$res_base/$os_id-x86-64"
             else
                 local arch_id
                 case "$arch" in
@@ -366,12 +403,14 @@ copy_to_resources () {
                 local src="$prefix_dir/lib"
                 [ -d "$src" ] || src="$prefix_dir/bin"
                 [ -d "$src" ] || return 0
+                local dst1="$res_base/$os_id-$arch_id"
+                mkdir -p "$dst1"
+                rm -f "$dst1"/*.dylib "$dst1"/*.so "$dst1"/*.dll
                 for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
                     [ -e "$lib" ] || continue
-                    local dst1="$res_base/$os_id-$arch_id"
-                    mkdir -p "$dst1"
                     cp -f "$lib" "$dst1/$(basename "$lib")"
                 done
+                compile_macos_jvm_shim "$arch_id" "$res_base/$os_id-$arch_id"
             fi
         ;;
     esac
@@ -486,7 +525,7 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
-load_target $arch
+load_target "$arch"
 setup_prefix
 build $target
 copy_to_resources

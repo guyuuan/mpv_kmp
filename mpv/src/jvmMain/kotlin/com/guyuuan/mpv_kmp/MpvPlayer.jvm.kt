@@ -85,7 +85,7 @@ class mpv_opengl_init_params : Structure() {
 
 private interface MPVLibrary : Library {
     fun mpv_client_api_version(): Long
-    fun mpv_create(): Pointer
+    fun mpv_create(): Pointer?
     fun mpv_set_option_string(ctx: Pointer, name: String, data: String): Int
     fun mpv_initialize(ctx: Pointer): Int
     fun mpv_error_string(error: Int): String?
@@ -183,31 +183,39 @@ private fun extractLibFromResources(): String? {
 
     // List of files to extract. Ideally this should be dynamic, but hardcoding ensures we get everything needed.
     val commonLibs = listOf(
+        "libmpv_kmp_macos_shim.dylib",
         "libmpv.dylib",
         "libmpv.2.dylib"
     )
 
-    val arm64Libs = listOf(
-        "libavcodec-macos-arm64.62.23.103.dylib", "libavcodec-macos-arm64.62.dylib", "libavcodec-macos-arm64.dylib",
-        "libavdevice-macos-arm64.62.2.100.dylib", "libavdevice-macos-arm64.62.dylib", "libavdevice-macos-arm64.dylib",
-        "libavfilter-macos-arm64.11.12.100.dylib", "libavfilter-macos-arm64.11.dylib", "libavfilter-macos-arm64.dylib",
-        "libavformat-macos-arm64.62.8.102.dylib", "libavformat-macos-arm64.62.dylib", "libavformat-macos-arm64.dylib",
-        "libavutil-macos-arm64.60.24.100.dylib", "libavutil-macos-arm64.60.dylib", "libavutil-macos-arm64.dylib",
-        "libswresample-macos-arm64.6.2.100.dylib", "libswresample-macos-arm64.6.dylib", "libswresample-macos-arm64.dylib",
-        "libswscale-macos-arm64.9.3.100.dylib", "libswscale-macos-arm64.9.dylib", "libswscale-macos-arm64.dylib"
+    fun versionedDylibs(name: String, major: String, version: String, prefix: String = "") = listOf(
+        "lib$name$prefix.$version.dylib",
+        "lib$name$prefix.$major.dylib",
+        "lib$name$prefix.dylib"
     )
 
-    val x64Libs = listOf(
-        "libavcodec-macos-x86_64.62.23.103.dylib", "libavcodec-macos-x86_64.62.dylib", "libavcodec-macos-x86_64.dylib",
-        "libavdevice-macos-x86_64.62.2.100.dylib", "libavdevice-macos-x86_64.62.dylib", "libavdevice-macos-x86_64.dylib",
-        "libavfilter-macos-x86_64.11.12.100.dylib", "libavfilter-macos-x86_64.11.dylib", "libavfilter-macos-x86_64.dylib",
-        "libavformat-macos-x86_64.62.8.102.dylib", "libavformat-macos-x86_64.62.dylib", "libavformat-macos-x86_64.dylib",
-        "libavutil-macos-x86_64.60.24.100.dylib", "libavutil-macos-x86_64.60.dylib", "libavutil-macos-x86_64.dylib",
-        "libswresample-macos-x86_64.6.2.100.dylib", "libswresample-macos-x86_64.6.dylib", "libswresample-macos-x86_64.dylib",
-        "libswscale-macos-x86_64.9.3.100.dylib", "libswscale-macos-x86_64.9.dylib", "libswscale-macos-x86_64.dylib"
-    )
+    val ffmpegLibs = listOf(
+        versionedDylibs("avcodec", "62", "62.23.103"),
+        versionedDylibs("avdevice", "62", "62.2.100"),
+        versionedDylibs("avfilter", "11", "11.12.100"),
+        versionedDylibs("avformat", "62", "62.8.102"),
+        versionedDylibs("avutil", "60", "60.24.100"),
+        versionedDylibs("swresample", "6", "6.2.100"),
+        versionedDylibs("swscale", "9", "9.3.100")
+    ).flatten()
 
-    val libs = commonLibs + if (arch == "aarch64") arm64Libs else x64Libs
+    val legacyPrefix = if (arch == "aarch64") "-macos-arm64" else "-macos-x86_64"
+    val legacyFfmpegLibs = listOf(
+        versionedDylibs("avcodec", "62", "62.23.103", legacyPrefix),
+        versionedDylibs("avdevice", "62", "62.2.100", legacyPrefix),
+        versionedDylibs("avfilter", "11", "11.12.100", legacyPrefix),
+        versionedDylibs("avformat", "62", "62.8.102", legacyPrefix),
+        versionedDylibs("avutil", "60", "60.24.100", legacyPrefix),
+        versionedDylibs("swresample", "6", "6.2.100", legacyPrefix),
+        versionedDylibs("swscale", "9", "9.3.100", legacyPrefix)
+    ).flatten()
+
+    val libs = commonLibs + ffmpegLibs + legacyFfmpegLibs
 
     // Create temp directory
     val tmpDir = Files.createTempDirectory("mpv-libs-$platform").toFile()
@@ -304,8 +312,7 @@ private object MPV {
          val extractedPath = extractLibFromResources()
          if (extractedPath != null) {
              println("NativeTrace[mpv.lib.load.extracted] path=$extractedPath")
-             // Preload dependencies if needed (sometimes helps with dlopen)
-             // But generally, loading the main lib should work if rpath/loader_path is correct.
+             loadMacosShimForBundledMpv(extractedPath)
              val loaded = Native.load(extractedPath, MPVLibrary::class.java)
              nativeTrace("mpv.lib.load.extracted.success")
              probe(extractedPath)
@@ -317,6 +324,18 @@ private object MPV {
              probe("mpv")
              loaded
          }
+     }
+
+     private fun loadMacosShimForBundledMpv(libPath: String) {
+         if (osId() != "darwin") return
+         val shim = File(libPath).resolveSibling("libmpv_kmp_macos_shim.dylib")
+         if (!shim.isFile) {
+             println("NativeTrace[mpv.lib.shim.missing] path=${shim.absolutePath}")
+             return
+         }
+         val options = mapOf(Library.OPTION_OPEN_FLAGS to (0x2 or 0x8)) // RTLD_NOW | RTLD_GLOBAL
+         NativeLibrary.getInstance(shim.absolutePath, options)
+         println("NativeTrace[mpv.lib.shim.loaded] path=${shim.absolutePath}")
      }
 }
 
