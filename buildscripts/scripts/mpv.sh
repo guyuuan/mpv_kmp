@@ -21,7 +21,10 @@ lua_opt="-Dlua=enabled"
 [ "$platform" = "ios" ] && lua_opt="-Dlua=disabled"
 ios_audio_opts=
 [ "$platform" = "ios" ] && ios_audio_opts="-Daudiounit=disabled -Davfoundation=disabled -Dcoreaudio=disabled -Dios-gl=disabled -Dvideotoolbox-gl=disabled"
-meson setup $build --cross-file "$prefix_dir"/crossfile.txt \
+meson_setup_args=("$build")
+[ -f "$build/meson-private/coredata.dat" ] && meson_setup_args+=(--reconfigure --clearcache)
+[ -n "$meson_native_file" ] && meson_setup_args+=(--native-file "$meson_native_file")
+meson setup "${meson_setup_args[@]}" --cross-file "$prefix_dir"/crossfile.txt \
 	--default-library shared \
 	-Diconv=disabled $lua_opt $ios_audio_opts \
 	-Dlibmpv=true -Dcplayer=false \

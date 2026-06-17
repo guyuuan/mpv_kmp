@@ -14,7 +14,10 @@ else
 fi
 
 unset CC CXX
-meson setup $build --cross-file "$prefix_dir"/crossfile.txt \
+meson_setup_args=("$build")
+[ -f "$build/meson-private/coredata.dat" ] && meson_setup_args+=(--reconfigure)
+[ -n "$meson_native_file" ] && meson_setup_args+=(--native-file "$meson_native_file")
+meson setup "${meson_setup_args[@]}" --cross-file "$prefix_dir"/crossfile.txt \
 	-Dvulkan=disabled -Ddemos=false
 
 ninja -C $build -j$cores

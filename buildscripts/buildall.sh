@@ -258,6 +258,38 @@ setup_prefix () {
 	fi
     export PKG_CONFIG_PATH="$prefix_dir/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
+    find_host_python () {
+        local candidates=()
+        [ -n "$HOST_PYTHON" ] && candidates+=("$HOST_PYTHON")
+        candidates+=(python3 /usr/bin/python3)
+
+        local py
+        for py in "${candidates[@]}"; do
+            command -v "$py" >/dev/null 2>&1 || continue
+            if "$py" -c 'import xml.etree.ElementTree as ET; ET.fromstring("<x/>")' >/dev/null 2>&1; then
+                command -v "$py"
+                return 0
+            fi
+        done
+
+        echo "No usable host Python found; set HOST_PYTHON to a Python with working xml.etree.ElementTree." >&2
+        return 1
+    }
+
+    host_python="$(find_host_python)"
+    host_python=${host_python//\'/\'\\\'\'}
+    export meson_native_file="$prefix_dir/nativefile.txt"
+    cat >"$prefix_dir/nativefile.tmp" <<NATIVEFILE
+[binaries]
+python = '$host_python'
+python3 = '$host_python'
+NATIVEFILE
+    if cmp -s "$prefix_dir"/nativefile.{tmp,txt}; then
+        rm "$prefix_dir/nativefile.tmp"
+    else
+        mv "$prefix_dir"/nativefile.{tmp,txt}
+    fi
+
     if [ "$ZIG" = "1" ]; then
         c_bin="['zig','cc','-target','$ZIG_TARGET']"
         cpp_bin="['zig','c++','-target','$ZIG_TARGET']"
@@ -312,6 +344,8 @@ ar = $ar_bin
 nm = '$NM'
 strip = '$STRIP'
 windres = '$WINDRES'
+python = '$host_python'
+python3 = '$host_python'
 pkgconfig = 'pkg-config'
 pkg-config = 'pkg-config'
 [host_machine]
