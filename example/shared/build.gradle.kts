@@ -9,15 +9,14 @@ plugins {
 
 kotlin {
     android {
-        namespace = "com.guyuuan.mpv_kmp.shared"
+        namespace = "com.guyuuan.mpv_kmp.example.shared"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
-        withHostTest {}
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
         }
     }
-    
+
     listOf(
         iosArm64(),
         iosSimulatorArm64()
@@ -26,30 +25,19 @@ kotlin {
             baseName = "Shared"
             isStatic = true
         }
-        iosTarget.compilations.getByName("main").cinterops.create("mpv") {
-            defFile("src/nativeInterop/cinterop/mpv.def")
-            includeDirs(project.file("libs/include"))
-        }
     }
-    
+
     jvm()
-    
+
     sourceSets {
         commonMain.dependencies {
-            // put your Multiplatform dependencies here
-            implementation(libs.kotlinx.coroutinesCore)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
+            implementation(libs.compose.material3)
             implementation(libs.compose.ui)
-        }
-        commonTest.dependencies {
-            implementation(libs.kotlin.test)
-        }
-        androidMain.dependencies {
-            implementation(project(":mpv:androidNative"))
-        }
-        jvmMain.dependencies {
-            implementation(libs.jna)
+            implementation(libs.compose.components.resources)
+            implementation(libs.compose.uiToolingPreview)
+            implementation(projects.mpv)
         }
     }
 }

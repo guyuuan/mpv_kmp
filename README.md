@@ -1,20 +1,13 @@
-This is a Kotlin Multiplatform project targeting Android, iOS, Desktop (JVM).
+This is a Kotlin Multiplatform project targeting Android, iOS, and Desktop (JVM).
 
-* [/composeApp](./composeApp/src) is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-  - [commonMain](./composeApp/src/commonMain/kotlin) is for code that’s common for all targets.
-  - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-    For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-    the [iosMain](./composeApp/src/iosMain/kotlin) folder would be the right place for such calls.
-    Similarly, if you want to edit the Desktop (JVM) specific part, the [jvmMain](./composeApp/src/jvmMain/kotlin)
-    folder is the appropriate location.
+The project follows the updated Kotlin Multiplatform structure with separate modules for shared code and runnable app entry points:
 
-* [/iosApp](./iosApp/iosApp) contains iOS applications. Even if you’re sharing your UI with Compose Multiplatform,
-  you need this entry point for your iOS app. This is also where you should add SwiftUI code for your project.
-
-* [/shared](mpv/src) is for the code that will be shared between all targets in the project.
-  The most important subfolder is [commonMain](mpv/src/commonMain/kotlin). If preferred, you
-  can add code to the platform-specific folders here too.
+* [/mpv](./mpv/src) is the reusable multiplatform mpv player library.
+* [/mpv/androidNative](./mpv/androidNative/src) contains the Android-only CMake/JNI bridge consumed by `mpv`.
+* [/example/shared](./example/shared/src) contains shared Compose UI for the sample app and exports the iOS framework.
+* [/example/androidApp](./example/androidApp/src) contains the Android application entry point and Android app configuration.
+* [/example/desktopApp](./example/desktopApp/src) contains the Desktop (JVM) application entry point and desktop packaging configuration.
+* [/iosApp](./iosApp/iosApp) contains the iOS application that consumes the framework produced by `example:shared`.
 
 ### Build and Run Android Application
 
@@ -22,11 +15,11 @@ To build and run the development version of the Android app, use the run configu
 in your IDE’s toolbar or build it directly from the terminal:
 - on macOS/Linux
   ```shell
-  ./gradlew :composeApp:assembleDebug
+  ./gradlew :example:androidApp:assembleDebug
   ```
 - on Windows
   ```shell
-  .\gradlew.bat :composeApp:assembleDebug
+  .\gradlew.bat :example:androidApp:assembleDebug
   ```
 
 ### Build and Run Desktop (JVM) Application
@@ -35,11 +28,11 @@ To build and run the development version of the desktop app, use the run configu
 in your IDE’s toolbar or run it directly from the terminal:
 - on macOS/Linux
   ```shell
-  ./gradlew :composeApp:run
+  ./gradlew :example:desktopApp:run
   ```
 - on Windows
   ```shell
-  .\gradlew.bat :composeApp:run
+  .\gradlew.bat :example:desktopApp:run
   ```
 
 ### Build and Run iOS Application

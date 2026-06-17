@@ -32,6 +32,8 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
-//include(":composeApp")
 include(":mpv")
-include(":example")
+include(":mpv:androidNative")
+include(":example:shared")
+include(":example:androidApp")
+include(":example:desktopApp")
