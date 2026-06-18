@@ -398,6 +398,22 @@ compile_macos_jvm_shim () {
     fi
 }
 
+should_copy_resource_lib () {
+    local lib_name="$(basename "$1")"
+
+    case "$lib_name" in
+        *.[0-9]*.dylib)
+            return 1
+        ;;
+        *.dylib|*.so|*.dll)
+            return 0
+        ;;
+        *)
+            return 1
+        ;;
+    esac
+}
+
 copy_to_resources () {
     case "$platform" in
         macos|linux|windows)
@@ -419,6 +435,7 @@ copy_to_resources () {
                 done
                 for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
                     [ -e "$lib" ] || continue
+                    should_copy_resource_lib "$lib" || continue
                     for a in aarch64 x86-64; do
                         local dst1="$res_base/$os_id-$a"
                         cp -f "$lib" "$dst1/$(basename "$lib")"
@@ -442,6 +459,7 @@ copy_to_resources () {
                 rm -f "$dst1"/*.dylib "$dst1"/*.so "$dst1"/*.dll
                 for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
                     [ -e "$lib" ] || continue
+                    should_copy_resource_lib "$lib" || continue
                     cp -f "$lib" "$dst1/$(basename "$lib")"
                 done
                 compile_macos_jvm_shim "$arch_id" "$res_base/$os_id-$arch_id"

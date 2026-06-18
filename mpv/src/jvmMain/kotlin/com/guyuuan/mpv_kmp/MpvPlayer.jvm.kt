@@ -6,8 +6,11 @@ import com.sun.jna.Pointer
 import com.sun.jna.Structure
 import com.sun.jna.ptr.PointerByReference
 import java.io.File
+import java.net.JarURLConnection
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.jar.JarFile
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 import kotlinx.coroutines.CoroutineScope
@@ -174,48 +177,23 @@ private fun libNameFor(os: String): String {
         else -> "mpv"
     }
 }
-private fun extractLibFromResources(): String? {
+private data class ExtractedMpvLibrary(
+    val mainLibraryPath: String,
+    val directory: File
+)
+
+private fun extractLibFromResources(): ExtractedMpvLibrary? {
     val os = osId()
     if (os != "darwin") return null // Only macOS needs this bundle extraction for now
 
     val arch = archId()
     val platform = "$os-$arch" // e.g. darwin-x86-64 or darwin-aarch64
 
-    // List of files to extract. Ideally this should be dynamic, but hardcoding ensures we get everything needed.
-    val commonLibs = listOf(
-        "libmpv_kmp_macos_shim.dylib",
-        "libmpv.dylib",
-        "libmpv.2.dylib"
-    )
-
-    fun versionedDylibs(name: String, major: String, version: String, prefix: String = "") = listOf(
-        "lib$name$prefix.$version.dylib",
-        "lib$name$prefix.$major.dylib",
-        "lib$name$prefix.dylib"
-    )
-
-    val ffmpegLibs = listOf(
-        versionedDylibs("avcodec", "62", "62.23.103"),
-        versionedDylibs("avdevice", "62", "62.2.100"),
-        versionedDylibs("avfilter", "11", "11.12.100"),
-        versionedDylibs("avformat", "62", "62.8.102"),
-        versionedDylibs("avutil", "60", "60.24.100"),
-        versionedDylibs("swresample", "6", "6.2.100"),
-        versionedDylibs("swscale", "9", "9.3.100")
-    ).flatten()
-
-    val legacyPrefix = if (arch == "aarch64") "-macos-arm64" else "-macos-x86_64"
-    val legacyFfmpegLibs = listOf(
-        versionedDylibs("avcodec", "62", "62.23.103", legacyPrefix),
-        versionedDylibs("avdevice", "62", "62.2.100", legacyPrefix),
-        versionedDylibs("avfilter", "11", "11.12.100", legacyPrefix),
-        versionedDylibs("avformat", "62", "62.8.102", legacyPrefix),
-        versionedDylibs("avutil", "60", "60.24.100", legacyPrefix),
-        versionedDylibs("swresample", "6", "6.2.100", legacyPrefix),
-        versionedDylibs("swscale", "9", "9.3.100", legacyPrefix)
-    ).flatten()
-
-    val libs = commonLibs + ffmpegLibs + legacyFfmpegLibs
+    val libs = bundledLibraryNames(platform)
+    if (libs.isEmpty()) {
+        println("NativeTrace[extract.resources.empty] platform=$platform")
+        return null
+    }
 
     // Create temp directory
     val tmpDir = Files.createTempDirectory("mpv-libs-$platform").toFile()
@@ -255,10 +233,87 @@ private fun extractLibFromResources(): String? {
     if (sonameLibPath != null || mainLibPath != null) {
         val selected = sonameLibPath ?: mainLibPath!!
         println("Extracted mpv libs to $tmpDir, main lib: $selected")
-        return selected
+        return ExtractedMpvLibrary(selected, tmpDir)
     } else {
         println("Failed to extract libmpv.dylib from resources.")
         return null
+    }
+}
+
+private fun bundledLibraryNames(platform: String): List<String> {
+    val classLoader = MpvPlayer::class.java.classLoader ?: ClassLoader.getSystemClassLoader()
+    val urls = classLoader.getResources(platform).toList()
+    val names = linkedSetOf<String>()
+
+    for (url in urls) {
+        when (url.protocol) {
+            "file" -> {
+                val dir = Path.of(url.toURI())
+                if (Files.isDirectory(dir)) {
+                    Files.list(dir).use { paths ->
+                        paths
+                            .filter { Files.isRegularFile(it) }
+                            .map { it.fileName.toString() }
+                            .forEach { names += it }
+                    }
+                }
+            }
+            "jar" -> {
+                val connection = url.openConnection() as? JarURLConnection ?: continue
+                val prefix = connection.entryName.trimEnd('/') + "/"
+                val entries = connection.jarFile.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (entry.isDirectory || !entry.name.startsWith(prefix)) continue
+                    val relativeName = entry.name.removePrefix(prefix)
+                    if (!relativeName.contains('/')) names += relativeName
+                }
+            }
+        }
+    }
+
+    if (names.isEmpty()) {
+        addBundledLibraryNamesFromCodeSource(platform, names)
+    }
+
+    return names.sortedWith(
+        compareBy<String> {
+            when (it) {
+                "libmpv_kmp_macos_shim.dylib" -> 0
+                "libmpv.2.dylib" -> 1
+                "libmpv.dylib" -> 2
+                else -> 3
+            }
+        }.thenBy { it }
+    )
+}
+
+private fun addBundledLibraryNamesFromCodeSource(platform: String, names: MutableSet<String>) {
+    val location = MpvPlayer::class.java.protectionDomain?.codeSource?.location ?: return
+    val path = Path.of(location.toURI())
+
+    if (Files.isDirectory(path)) {
+        val dir = path.resolve(platform)
+        if (!Files.isDirectory(dir)) return
+        Files.list(dir).use { paths ->
+            paths
+                .filter { Files.isRegularFile(it) }
+                .map { it.fileName.toString() }
+                .forEach { names += it }
+        }
+        return
+    }
+
+    if (!Files.isRegularFile(path)) return
+    JarFile(path.toFile()).use { jar ->
+        val prefix = "$platform/"
+        val entries = jar.entries()
+        while (entries.hasMoreElements()) {
+            val entry = entries.nextElement()
+            if (entry.isDirectory || !entry.name.startsWith(prefix)) continue
+            val relativeName = entry.name.removePrefix(prefix)
+            if (!relativeName.contains('/')) names += relativeName
+        }
     }
 }
 
@@ -294,6 +349,10 @@ private object GL {
 }
 
 private object MPV {
+     private val bundled: ExtractedMpvLibrary? by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+         extractLibFromResources()
+     }
+
      private fun probe(libKey: String) {
          try {
              val raw = NativeLibrary.getInstance(libKey)
@@ -308,21 +367,29 @@ private object MPV {
 
      val lib: MPVLibrary by lazy {
          nativeTrace("mpv.lib.lazy.begin")
-         // Try loading from extracted resources first (fixes macOS dependency issues)
-         val extractedPath = extractLibFromResources()
-         if (extractedPath != null) {
-             println("NativeTrace[mpv.lib.load.extracted] path=$extractedPath")
-             loadMacosShimForBundledMpv(extractedPath)
-             val loaded = Native.load(extractedPath, MPVLibrary::class.java)
-             nativeTrace("mpv.lib.load.extracted.success")
-             probe(extractedPath)
-             loaded
-         } else {
+         val bundledError = bundled?.let { extracted ->
+             try {
+                 println("NativeTrace[mpv.lib.load.bundled] path=${extracted.mainLibraryPath} dir=${extracted.directory.absolutePath}")
+                 loadMacosShimForBundledMpv(extracted.mainLibraryPath)
+                 val loaded = Native.load(extracted.mainLibraryPath, MPVLibrary::class.java)
+                 nativeTrace("mpv.lib.load.bundled.success")
+                 probe(extracted.mainLibraryPath)
+                 return@lazy loaded
+             } catch (e: Throwable) {
+                 println("NativeTrace[mpv.lib.load.bundled.fail] $e")
+                 e
+             }
+         }
+
+         try {
              nativeTrace("mpv.lib.load.system.try")
              val loaded = Native.load("mpv", MPVLibrary::class.java)
              nativeTrace("mpv.lib.load.system.success")
              probe("mpv")
              loaded
+         } catch (systemError: Throwable) {
+             if (bundledError != null) systemError.addSuppressed(bundledError)
+             throw systemError
          }
      }
 
