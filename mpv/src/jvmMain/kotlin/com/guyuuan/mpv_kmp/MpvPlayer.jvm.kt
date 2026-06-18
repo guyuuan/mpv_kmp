@@ -93,6 +93,7 @@ private interface MPVLibrary : Library {
     fun mpv_initialize(ctx: Pointer): Int
     fun mpv_error_string(error: Int): String?
     fun mpv_request_log_messages(ctx: Pointer, min_level: String): Int
+    fun mpv_command(ctx: Pointer, args: Pointer): Int
     fun mpv_command_string(ctx: Pointer, args: String): Int
     fun mpv_set_property_string(ctx: Pointer, name: String, data: String): Int
     fun mpv_set_property(ctx: Pointer, name: String, format: Int, data: Pointer): Int
@@ -179,7 +180,8 @@ private fun libNameFor(os: String): String {
 }
 private data class ExtractedMpvLibrary(
     val mainLibraryPath: String,
-    val directory: File
+    val directory: File,
+    val dependencyLibraryPaths: List<String>
 )
 
 private fun extractLibFromResources(): ExtractedMpvLibrary? {
@@ -201,6 +203,7 @@ private fun extractLibFromResources(): ExtractedMpvLibrary? {
 
     var mainLibPath: String? = null
     var sonameLibPath: String? = null
+    val extractedLibs = mutableListOf<File>()
 
     for (name in libs) {
         val resourcePath = "/$platform/$name"
@@ -215,6 +218,7 @@ private fun extractLibFromResources(): ExtractedMpvLibrary? {
 
         try {
             Files.copy(stream, dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            extractedLibs += dest
             println("NativeTrace[extract.copy] ${dest.absolutePath} size=${dest.length()}")
             if (name == "libmpv.dylib") {
                 mainLibPath = dest.absolutePath
@@ -232,8 +236,13 @@ private fun extractLibFromResources(): ExtractedMpvLibrary? {
     // If we found the main lib, return it. Otherwise fall back to JNA's default search.
     if (sonameLibPath != null || mainLibPath != null) {
         val selected = sonameLibPath ?: mainLibPath!!
+        val dependencies = extractedLibs
+            .filter { it.absolutePath != selected && it.name != "libmpv_kmp_macos_shim.dylib" }
+            .filter { it.name != "libavdevice.dylib" }
+            .sortedWith(compareBy<File> { macosDependencyLoadPriority(it.name) }.thenBy { it.name })
+            .map { it.absolutePath }
         println("Extracted mpv libs to $tmpDir, main lib: $selected")
-        return ExtractedMpvLibrary(selected, tmpDir)
+        return ExtractedMpvLibrary(selected, tmpDir, dependencies)
     } else {
         println("Failed to extract libmpv.dylib from resources.")
         return null
@@ -286,6 +295,21 @@ private fun bundledLibraryNames(platform: String): List<String> {
             }
         }.thenBy { it }
     )
+}
+
+private fun macosDependencyLoadPriority(name: String): Int {
+    return when (name) {
+        "libavutil.dylib" -> 0
+        "libswresample.dylib" -> 1
+        "libswscale.dylib" -> 2
+        "libavcodec.dylib" -> 3
+        "libavformat.dylib" -> 4
+        "libavfilter.dylib" -> 5
+        "libavdevice.dylib" -> 6
+        "libmpv.2.dylib" -> 100
+        "libmpv.dylib" -> 101
+        else -> 50
+    }
 }
 
 private fun addBundledLibraryNamesFromCodeSource(platform: String, names: MutableSet<String>) {
@@ -371,6 +395,8 @@ private object MPV {
              try {
                  println("NativeTrace[mpv.lib.load.bundled] path=${extracted.mainLibraryPath} dir=${extracted.directory.absolutePath}")
                  loadMacosShimForBundledMpv(extracted.mainLibraryPath)
+                 preloadBundledDependencies(extracted)
+                 verifyBundledMpvClientApi(extracted.mainLibraryPath)
                  val loaded = Native.load(extracted.mainLibraryPath, MPVLibrary::class.java)
                  nativeTrace("mpv.lib.load.bundled.success")
                  probe(extracted.mainLibraryPath)
@@ -391,6 +417,26 @@ private object MPV {
              if (bundledError != null) systemError.addSuppressed(bundledError)
              throw systemError
          }
+     }
+
+     private fun preloadBundledDependencies(extracted: ExtractedMpvLibrary) {
+         if (osId() != "darwin") return
+         val options = mapOf(Library.OPTION_OPEN_FLAGS to (0x2 or 0x8)) // RTLD_NOW | RTLD_GLOBAL
+         for (path in extracted.dependencyLibraryPaths) {
+             NativeLibrary.getInstance(path, options)
+             println("NativeTrace[mpv.lib.dep.loaded] path=$path")
+         }
+     }
+
+     private fun verifyBundledMpvClientApi(libPath: String) {
+         val options = if (osId() == "darwin") {
+             mapOf(Library.OPTION_OPEN_FLAGS to (0x2 or 0x8)) // RTLD_NOW | RTLD_GLOBAL
+         } else {
+             emptyMap<String, Any>()
+         }
+         val raw = NativeLibrary.getInstance(libPath, options)
+         raw.getFunction("mpv_create")
+         raw.getFunction("mpv_client_api_version")
      }
 
      private fun loadMacosShimForBundledMpv(libPath: String) {
@@ -509,15 +555,20 @@ private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
 
     override fun commandString(cmd: String): Int {
         val c = ctx ?: return -1
-        return MPV.lib.mpv_command_string(c, cmd)
+        val ret = MPV.lib.mpv_command_string(c, cmd)
+        if (ret < 0) {
+            val err = MPV.lib.mpv_error_string(ret) ?: "unknown"
+            println("JvmMpvPlayer: commandString failed: $ret ($err), cmd=$cmd")
+        }
+        return ret
     }
 
     override fun load(uri: String): Int {
-        return commandString("loadfile \"$uri\"")
+        return command("loadfile", uri)
     }
 
     override fun addToPlaylist(uri: String): Int {
-        return commandString("loadfile \"$uri\" append")
+        return command("loadfile", uri, "append")
     }
     override fun playlistNext(): Int = commandString("playlist-next")
     override fun playlistPrev(): Int = commandString("playlist-prev")
@@ -553,7 +604,29 @@ private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
     }
 
     override fun stop(): Int {
-        return commandString("stop")
+        return command("stop")
+    }
+
+    private fun command(vararg args: String): Int {
+        val c = ctx ?: return -1
+        val nativeStrings = args.map { value ->
+            com.sun.jna.Memory(value.toByteArray(Charsets.UTF_8).size + 1L).apply {
+                setString(0, value, Charsets.UTF_8.name())
+            }
+        }
+        val pointerSize = Native.POINTER_SIZE
+        val argv = com.sun.jna.Memory(pointerSize.toLong() * (nativeStrings.size + 1))
+        nativeStrings.forEachIndexed { index, value ->
+            argv.setPointer(index.toLong() * pointerSize, value)
+        }
+        argv.setPointer(nativeStrings.size.toLong() * pointerSize, null)
+
+        val ret = MPV.lib.mpv_command(c, argv)
+        if (ret < 0) {
+            val err = MPV.lib.mpv_error_string(ret) ?: "unknown"
+            println("JvmMpvPlayer: command failed: $ret ($err), args=${args.joinToString(" ")}")
+        }
+        return ret
     }
 
     override fun setProperty(name: String, value: String): Int {

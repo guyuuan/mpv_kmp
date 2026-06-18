@@ -15,3 +15,32 @@ int mpv_kmp_macos_shim_present(void)
 {
     return 1;
 }
+
+void cocoa_init_media_keys(void)
+{
+}
+
+void cocoa_uninit_media_keys(void)
+{
+}
+
+void cocoa_set_input_context(void *input_context)
+{
+    (void)input_context;
+}
+
+void cocoa_set_mpv_handle(void *ctx)
+{
+    (void)ctx;
+}
+
+void cocoa_init_cocoa_cb(void)
+{
+}
+
+int cocoa_main(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    return 0;
+}

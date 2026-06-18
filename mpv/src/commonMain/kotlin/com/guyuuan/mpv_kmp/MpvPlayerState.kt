@@ -64,25 +64,17 @@ class MpvPlayerState(
         }
     }
 
-    fun load(url: String) {
-        player.load(url)
-    }
+    fun load(url: String): Int = player.load(url)
 
-    fun play() {
-        player.play()
-    }
+    fun play(): Int = player.play()
 
-    fun pause() {
-        player.pause()
-    }
+    fun pause(): Int = player.pause()
     
     fun togglePause() {
         if (isPaused) play() else pause()
     }
 
-    fun stop() {
-        player.stop()
-    }
+    fun stop(): Int = player.stop()
     
     fun seek(position: Double) {
         player.commandString("seek $position absolute")

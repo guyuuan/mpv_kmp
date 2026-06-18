@@ -414,6 +414,22 @@ should_copy_resource_lib () {
     esac
 }
 
+verify_mpv_client_symbols () {
+    local lib="$1"
+    local lib_name="$(basename "$lib")"
+
+    [ "$platform" = "macos" ] || return 0
+    case "$lib_name" in
+        libmpv.dylib|libmpv.2.dylib)
+            if ! nm -gU "$lib" 2>/dev/null | grep -q '_mpv_create' || \
+               ! nm -gU "$lib" 2>/dev/null | grep -q '_mpv_client_api_version'; then
+                echo "Invalid macOS libmpv: $lib does not export mpv client API symbols" >&2
+                return 1
+            fi
+        ;;
+    esac
+}
+
 copy_to_resources () {
     case "$platform" in
         macos|linux|windows)
@@ -436,6 +452,7 @@ copy_to_resources () {
                 for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
                     [ -e "$lib" ] || continue
                     should_copy_resource_lib "$lib" || continue
+                    verify_mpv_client_symbols "$lib"
                     for a in aarch64 x86-64; do
                         local dst1="$res_base/$os_id-$a"
                         cp -f "$lib" "$dst1/$(basename "$lib")"
@@ -460,6 +477,7 @@ copy_to_resources () {
                 for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
                     [ -e "$lib" ] || continue
                     should_copy_resource_lib "$lib" || continue
+                    verify_mpv_client_symbols "$lib"
                     cp -f "$lib" "$dst1/$(basename "$lib")"
                 done
                 compile_macos_jvm_shim "$arch_id" "$res_base/$os_id-$arch_id"

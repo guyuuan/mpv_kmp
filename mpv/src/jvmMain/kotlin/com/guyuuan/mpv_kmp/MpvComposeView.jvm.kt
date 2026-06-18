@@ -77,16 +77,21 @@ actual fun MpvComposeView(
                                         }
                                     }
 
-                                    canvas.drawImage(org.jetbrains.skia.Image.makeFromBitmap(b), 0f, 0f)
+                                    org.jetbrains.skia.Image.makeFromBitmap(b).use { image ->
+                                        canvas.drawImage(image, 0f, 0f)
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                SwingUtilities.invokeLater {
+                    needRender()
+                }
             }
         },
         update = {
-            // Update logic if needed
+            it.needRender()
         }
     )
 }
