@@ -10,19 +10,28 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.guyuuan.mpv_kmp.MpvComposeView
 import com.guyuuan.mpv_kmp.rememberMpvPlayerState
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun App() {
     MaterialTheme {
         val playerState = rememberMpvPlayerState()
-        val videoUrl = "http://vjs.zencdn.net/v/oceans.mp4"
-
+        val videoUrl = "https://developer.mozilla.org/shared-assets/videos/flower.mp4"
+        fun playVideo(){
+            println("start load video: $videoUrl")
+            val load = playerState.load(videoUrl)
+            println("load result: $load")
+            val play = playerState.play()
+            println("play result: $play")
+        }
         Column(modifier = Modifier.fillMaxSize()) {
             MpvComposeView(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -34,7 +43,7 @@ fun App() {
                 Text(text = "Time: ${playerState.timePos} / ${playerState.duration}")
                 
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Button(onClick = { playerState.load(videoUrl); playerState.play() }) {
+                    Button(onClick = ::playVideo) {
                         Text("Load & Play")
                     }
                     Button(onClick = { playerState.togglePause() }, modifier = Modifier.padding(start = 8.dp)) {
@@ -45,6 +54,11 @@ fun App() {
                     }
                 }
             }
+        }
+
+        LaunchedEffect(Unit){
+            delay(1000.milliseconds)
+            playVideo()
         }
     }
 }
