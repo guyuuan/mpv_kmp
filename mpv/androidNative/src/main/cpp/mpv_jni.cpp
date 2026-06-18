@@ -201,8 +201,8 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvWaitEvent(JNIEnv* env, jclass, jdouble ti
         mpv_event_property* prop = (mpv_event_property*)e->data;
         if (prop->name) jName = env->NewStringUTF(prop->name);
         if (prop->format == MPV_FORMAT_STRING && prop->data) {
-             char** strPtr = (char**)prop->data;
-             if (*strPtr) jValue = env->NewStringUTF(*strPtr);
+             const char* str = (const char*)prop->data;
+             if (str) jValue = env->NewStringUTF(str);
         }
     }
 

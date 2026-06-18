@@ -2,6 +2,7 @@ package com.guyuuan.mpv_kmp
 
 import androidx.compose.runtime.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 @Composable
 fun rememberMpvPlayerState(
@@ -40,7 +41,9 @@ class MpvPlayerState(
         if (player.initialize()) {
             player.setCoroutineScope(scope)
             player.setEventListener { event ->
-                handleEvent(event)
+                scope.launch {
+                    handleEvent(event)
+                }
             }
             player.observeProperty("pause")
             player.observeProperty("time-pos")
@@ -49,14 +52,17 @@ class MpvPlayerState(
     }
 
     private fun handleEvent(event: MpvEvent) {
+        println("handle event: $event")
         when (event.type) {
             MpvEventType.PropertyChange -> {
                 when (event.name) {
-                    "pause" -> isPaused = event.value == "yes"
+                    "pause" -> isPaused = event.value == "yes" || event.value == "true"
                     "time-pos" -> timePos = event.value?.toDoubleOrNull() ?: 0.0
                     "duration" -> duration = event.value?.toDoubleOrNull() ?: 0.0
                 }
             }
+            MpvEventType.Pause -> isPaused = true
+            MpvEventType.Unpause -> isPaused = false
             MpvEventType.StartFile -> isLoading = true
             MpvEventType.FileLoaded -> isLoading = false
             MpvEventType.EndFile -> isLoading = false
@@ -66,9 +72,17 @@ class MpvPlayerState(
 
     fun load(url: String): Int = player.load(url)
 
-    fun play(): Int = player.play()
+    fun play(): Int {
+        val result = player.play()
+        if (result >= 0) isPaused = false
+        return result
+    }
 
-    fun pause(): Int = player.pause()
+    fun pause(): Int {
+        val result = player.pause()
+        if (result >= 0) isPaused = true
+        return result
+    }
     
     fun togglePause() {
         if (isPaused) play() else pause()
