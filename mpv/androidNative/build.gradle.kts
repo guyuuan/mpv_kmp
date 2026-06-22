@@ -1,5 +1,23 @@
+import org.gradle.api.tasks.Copy
+
 plugins {
     alias(libs.plugins.androidLibrary)
+}
+
+val androidMpvLibs = listOf(
+    "arm64-v8a" to "android-arm64",
+    "x86_64" to "android-x86_64",
+)
+val generatedAndroidMpvJniLibsDir = layout.buildDirectory.dir("generated/androidMpvJniLibs").get().asFile
+
+val copyAndroidMpvJniLibs by tasks.registering(Copy::class) {
+    androidMpvLibs.forEach { (abi, prefix) ->
+        from(rootProject.file("buildscripts/prefix/$prefix/lib")) {
+            include("*.so")
+            into(abi)
+        }
+    }
+    into(generatedAndroidMpvJniLibsDir)
 }
 
 android {
@@ -8,6 +26,9 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
+        ndk {
+            abiFilters += androidMpvLibs.map { it.first }
+        }
     }
 
     externalNativeBuild {
@@ -15,4 +36,14 @@ android {
             path = file("src/main/cpp/CMakeLists.txt")
         }
     }
+
+    sourceSets {
+        getByName("main") {
+            jniLibs.directories.add(generatedAndroidMpvJniLibsDir.path)
+        }
+    }
+}
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach {
+    dependsOn(copyAndroidMpvJniLibs)
 }
