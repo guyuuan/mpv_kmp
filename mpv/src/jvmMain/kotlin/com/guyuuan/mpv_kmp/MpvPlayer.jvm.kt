@@ -699,7 +699,7 @@ private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
              prop.read()
              name = prop.name
              if (prop.format == 1 && prop.data != null) {
-                 value = prop.data!!.getString(0)
+                 value = prop.data!!.getPointer(0)?.getString(0)
              }
         }
 
