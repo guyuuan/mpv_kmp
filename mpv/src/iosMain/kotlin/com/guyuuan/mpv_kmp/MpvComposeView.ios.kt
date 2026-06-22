@@ -6,22 +6,12 @@ import androidx.compose.ui.interop.UIKitView
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.UIKit.UIView
 import platform.UIKit.UIColor
-import platform.QuartzCore.CALayer
-import kotlinx.cinterop.useContents
-import kotlinx.cinterop.UnsafeMutableRawPointer
-import kotlinx.cinterop.CPointer
-import kotlinx.cinterop.ObjCObjectVar
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
-import kotlinx.cinterop.value
-import platform.CoreGraphics.CGRectMake
 
 @OptIn(ExperimentalForeignApi::class)
 @Composable
 actual fun MpvComposeView(
     modifier: Modifier,
-    state: MpvPlayerState
+    state: MpvPlayer
 ) {
     UIKitView(
         modifier = modifier,
@@ -41,7 +31,7 @@ actual fun MpvComposeView(
             // view.layer.objcPtr() ? No.
             // Let's rely on standard way to get pointer address.
             // Assuming we have an extension or bridge.
-            // But wait, in MpvPlayer.ios.kt we handled CPointer.
+            // But wait, in IMpvPlayer.ios.kt we handled CPointer.
             // Here we have ObjC object.
             // We need the raw pointer address of the CALayer.
             
@@ -57,7 +47,7 @@ actual fun MpvComposeView(
             // Workaround: Use CFBridgingRetain to get a void* (CPointer<out CPointed>)
             // Or simple casting if possible.
             
-            // Actually, MpvPlayer.attach expects Any.
+            // Actually, IMpvPlayer.attach expects Any.
             // In iOS impl, we check for CPointer or Long.
             // We need the address of the CALayer object as Long.
             
@@ -88,10 +78,10 @@ actual fun MpvComposeView(
             // Let's use `objc_lookUpClass` style or similar?
             
             // Simpler: Just pass the view/layer to attach, and let attach handle it?
-            // But attach takes Any. MpvPlayer.ios.kt checks for CPointer or Long.
+            // But attach takes Any. IMpvPlayer.ios.kt checks for CPointer or Long.
             // It doesn't check for UIView/CALayer yet.
             
-            // Let's update MpvPlayer.ios.kt to accept CALayer/UIView if possible?
+            // Let's update IMpvPlayer.ios.kt to accept CALayer/UIView if possible?
             // Or better, convert here.
             
             // To get pointer from ObjC object `obj`:
@@ -117,7 +107,7 @@ actual fun MpvComposeView(
             // val addr: Long = layer.hashCode().toLong() // Unreliable? usually address.
             // No, hashCode is not address.
             
-            // Okay, let's look at `MpvPlayer.ios.kt`. It accepts CPointer.
+            // Okay, let's look at `IMpvPlayer.ios.kt`. It accepts CPointer.
             // How to convert CALayer to CPointer<*>?
             // val ptr = layer.reinterpret<...>()?
             

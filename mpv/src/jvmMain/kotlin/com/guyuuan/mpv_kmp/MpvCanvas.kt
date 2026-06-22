@@ -6,7 +6,7 @@ import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 
 class MpvCanvas : Canvas() {
-    private var player: MpvPlayer? = null
+    private var player: IMpvPlayer? = null
 
     init {
         addComponentListener(object : ComponentAdapter() {
@@ -21,7 +21,7 @@ class MpvCanvas : Canvas() {
         })
     }
 
-    fun setPlayer(player: MpvPlayer) {
+    fun setPlayer(player: IMpvPlayer) {
         this.player = player
         if (isDisplayable) {
             attachPlayer()

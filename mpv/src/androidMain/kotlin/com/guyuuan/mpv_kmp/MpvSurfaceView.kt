@@ -11,13 +11,13 @@ class MpvSurfaceView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : SurfaceView(context, attrs, defStyleAttr), SurfaceHolder.Callback {
 
-    private var player: MpvPlayer? = null
+    private var player: IMpvPlayer? = null
 
     init {
         holder.addCallback(this)
     }
 
-    fun setPlayer(player: MpvPlayer) {
+    fun setPlayer(player: IMpvPlayer) {
         this.player = player
         if (holder.surface.isValid) {
             player.attach(holder.surface)

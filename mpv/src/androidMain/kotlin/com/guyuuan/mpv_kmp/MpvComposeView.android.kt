@@ -7,7 +7,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 @Composable
 actual fun MpvComposeView(
     modifier: Modifier,
-    state: MpvPlayerState
+    state: MpvPlayer
 ) {
     AndroidView(
         modifier = modifier,
@@ -18,7 +18,7 @@ actual fun MpvComposeView(
         },
         update = { view ->
             // MpvSurfaceView handles attach internally when surface is created
-            // If state.player changes, we might need to update, but usually MpvPlayerState holds stable player
+            // If state.player changes, we might need to update, but usually MpvPlayer holds stable player
         }
     )
 }

@@ -15,9 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 
@@ -207,7 +205,7 @@ private fun extractLibFromResources(): ExtractedMpvLibrary? {
 
     for (name in libs) {
         val resourcePath = "/$platform/$name"
-        val stream = MpvPlayer::class.java.getResourceAsStream(resourcePath)
+        val stream = IMpvPlayer::class.java.getResourceAsStream(resourcePath)
         if (stream == null) {
              println("Resource not found: $resourcePath")
             continue
@@ -250,7 +248,7 @@ private fun extractLibFromResources(): ExtractedMpvLibrary? {
 }
 
 private fun bundledLibraryNames(platform: String): List<String> {
-    val classLoader = MpvPlayer::class.java.classLoader ?: ClassLoader.getSystemClassLoader()
+    val classLoader = IMpvPlayer::class.java.classLoader ?: ClassLoader.getSystemClassLoader()
     val urls = classLoader.getResources(platform).toList()
     val names = linkedSetOf<String>()
 
@@ -313,7 +311,7 @@ private fun macosDependencyLoadPriority(name: String): Int {
 }
 
 private fun addBundledLibraryNamesFromCodeSource(platform: String, names: MutableSet<String>) {
-    val location = MpvPlayer::class.java.protectionDomain?.codeSource?.location ?: return
+    val location = IMpvPlayer::class.java.protectionDomain?.codeSource?.location ?: return
     val path = Path.of(location.toURI())
 
     if (Files.isDirectory(path)) {
@@ -460,7 +458,7 @@ internal interface RenderContextSupport {
     fun setRenderCallback(callback: () -> Unit)
 }
 
-private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
+private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport {
     private var ctx: Pointer? = null
     private var listener: ((MpvEvent) -> Unit)? = null
     @Volatile private var running = false
@@ -844,4 +842,4 @@ private class JvmMpvPlayer : MpvPlayer, RenderContextSupport {
     }
 }
 
-actual fun createMpvPlayer(): MpvPlayer = JvmMpvPlayer()
+actual fun createMpvPlayer(): IMpvPlayer = JvmMpvPlayer()

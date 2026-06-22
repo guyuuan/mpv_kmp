@@ -1,42 +1,100 @@
 package com.guyuuan.mpv_kmp
 
+import androidx.compose.runtime.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
-enum class MpvEventType {
-    None, Shutdown, LogMessage, GetPropertyReply, SetPropertyReply,
-    CommandReply, StartFile, EndFile, FileLoaded,
-    TracksChanged, TrackSwitched, Idle, Pause, Unpause,
-    Tick, ScriptInputDispatch, ClientMessage, VideoReconfig,
-    AudioReconfig, MetadataUpdate, Seek, PlaybackRestart, PropertyChange,
-    ChapterChange, QueueOverflow, Hook
-}
-data class MpvEvent(val type: MpvEventType, val name: String? = null, val value: String? = null, val error: Int = 0)
+@Composable
+fun rememberMpvPlayer(
+    scope: CoroutineScope = rememberCoroutineScope()
+): MpvPlayer {
+    val player = remember { createMpvPlayer() }
+    val state = remember(player, scope) { MpvPlayer(player, scope) }
 
-interface MpvPlayer {
-    fun initialize(): Boolean
-    fun attach(view: Any)
-    fun detach()
-    fun commandString(cmd: String): Int
-    fun load(uri: String): Int
-    fun loadFile(path: String): Int = load(mpvFileUri(path))
-    fun addToPlaylist(uri: String): Int
-    fun playlistNext(): Int
-    fun playlistPrev(): Int
-    fun playlistClear(): Int
-    fun setEventListener(listener: (MpvEvent) -> Unit)
-    fun setCoroutineScope(scope: CoroutineScope)
-    fun observeProperty(name: String)
-    fun removePropertyObservation(name: String)
-    fun play(): Int
-    fun pause(): Int
-    fun stop(): Int
-    fun setProperty(name: String, value: String): Int
-    fun getProperty(name: String): String?
-    fun terminate()
+    DisposableEffect(state) {
+        state.setup()
+        onDispose {
+            state.dispose()
+        }
+    }
+    return state
 }
 
-expect fun createMpvPlayer(): MpvPlayer
+@Stable
+class MpvPlayer(
+    val player: IMpvPlayer,
+    private val scope: CoroutineScope
+) {
+    var isPaused by mutableStateOf(false)
+        private set
 
-fun mpvFileUri(path: String): String {
-    return if (path.startsWith("file://")) path else "file://$path"
+    var timePos by mutableStateOf(0.0)
+        private set
+
+    var duration by mutableStateOf(0.0)
+        private set
+
+    var isLoading by mutableStateOf(false)
+        private set
+
+    fun setup() {
+        if (player.initialize()) {
+            player.setCoroutineScope(scope)
+            player.setEventListener { event ->
+                scope.launch {
+                    handleEvent(event)
+                }
+            }
+            player.observeProperty("pause")
+            player.observeProperty("time-pos")
+            player.observeProperty("duration")
+        }
+    }
+
+    private fun handleEvent(event: MpvEvent) {
+        println("handle event: $event")
+        when (event.type) {
+            MpvEventType.PropertyChange -> {
+                when (event.name) {
+                    "pause" -> isPaused = event.value == "yes" || event.value == "true"
+                    "time-pos" -> timePos = event.value?.toDoubleOrNull() ?: 0.0
+                    "duration" -> duration = event.value?.toDoubleOrNull() ?: 0.0
+                }
+            }
+            MpvEventType.Pause -> isPaused = true
+            MpvEventType.Unpause -> isPaused = false
+            MpvEventType.StartFile -> isLoading = true
+            MpvEventType.FileLoaded -> isLoading = false
+            MpvEventType.EndFile -> isLoading = false
+            else -> {}
+        }
+    }
+
+    fun load(url: String): Int = player.load(url)
+
+    fun play(): Int {
+        val result = player.play()
+        if (result >= 0) isPaused = false
+        return result
+    }
+
+    fun pause(): Int {
+        val result = player.pause()
+        if (result >= 0) isPaused = true
+        return result
+    }
+    
+    fun togglePause() {
+        if (isPaused) play() else pause()
+    }
+
+    fun stop(): Int = player.stop()
+    
+    fun seek(position: Double) {
+        player.commandString("seek $position absolute")
+    }
+
+    fun dispose() {
+        player.terminate()
+    }
 }

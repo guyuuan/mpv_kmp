@@ -2,13 +2,11 @@ package com.guyuuan.mpv_kmp
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 
-private class AndroidMpvPlayer : MpvPlayer {
+private class AndroidMpvPlayer : IMpvPlayer {
     private var listener: ((MpvEvent) -> Unit)? = null
     @Volatile private var running = false
     private var scope: CoroutineScope? = null
@@ -108,4 +106,4 @@ private class AndroidMpvPlayer : MpvPlayer {
     }
 }
 
-actual fun createMpvPlayer(): MpvPlayer = AndroidMpvPlayer()
+actual fun createMpvPlayer(): IMpvPlayer = AndroidMpvPlayer()

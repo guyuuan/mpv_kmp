@@ -6,19 +6,17 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.pointed
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.ptr
-import kotlinx.cinterop.nativeHeap
 import kotlinx.cinterop.allocPointer
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.LongVar
 import kotlinx.cinterop.ByteVar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.cinterop.reinterpret
 import kotlinx.coroutines.isActive
 
-private class IosMpvPlayer : MpvPlayer {
+private class IosMpvPlayer : IMpvPlayer {
     private var handle: CPointer<mpv_handle>? = null
     private var listener: ((MpvEvent) -> Unit)? = null
     @Volatile private var running = false
@@ -181,4 +179,4 @@ private class IosMpvPlayer : MpvPlayer {
     }
 }
 
-actual fun createMpvPlayer(): MpvPlayer = IosMpvPlayer()
+actual fun createMpvPlayer(): IMpvPlayer = IosMpvPlayer()

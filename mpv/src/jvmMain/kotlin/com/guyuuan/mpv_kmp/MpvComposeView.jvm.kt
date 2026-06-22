@@ -18,7 +18,7 @@ import com.sun.jna.Pointer
 @Composable
 actual fun MpvComposeView(
     modifier: Modifier,
-    state: MpvPlayerState
+    state: MpvPlayer
 ) {
     var isInit by remember { mutableStateOf(false) }
     SwingPanel(
