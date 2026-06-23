@@ -1,21 +1,20 @@
 package com.guyuuan.mpv_kmp
 
 import com.guyuuan.mpv_kmp.mpv.*
+import cnames.structs.mpv_handle
 import kotlinx.cinterop.CPointer
-import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.pointed
 import kotlinx.cinterop.toKString
-import kotlinx.cinterop.ptr
-import kotlinx.cinterop.allocPointer
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.LongVar
-import kotlinx.cinterop.ByteVar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.cinterop.reinterpret
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlin.concurrent.Volatile
 
+@OptIn(ExperimentalForeignApi::class)
 private class IosMpvPlayer : IMpvPlayer {
     private var handle: CPointer<mpv_handle>? = null
     private var listener: ((MpvEvent) -> Unit)? = null
@@ -33,23 +32,13 @@ private class IosMpvPlayer : IMpvPlayer {
     override fun attach(view: Any) {
         val h = handle ?: return
         if (view is CPointer<*>) {
-            memScoped {
-                val widVal = view.rawValue.toLong()
-                val widVar = alloc<LongVar>()
-                widVar.value = widVal
-                mpv_set_property(h, "wid", MPV_FORMAT_INT64, widVar.ptr)
-            }
+            mpv_set_property_string(h, "wid", view.rawValue.toLong().toString())
         } else if (view is Long) {
-            memScoped {
-                val widVar = alloc<LongVar>()
-                widVar.value = view
-                mpv_set_property(h, "wid", MPV_FORMAT_INT64, widVar.ptr)
-            }
+            mpv_set_property_string(h, "wid", view.toString())
         }
     }
     override fun detach() {
         val h = handle ?: return
-        val zero: Long = 0
         mpv_set_property_string(h, "wid", "0")
     }
     override fun commandString(cmd: String): Int {
@@ -94,14 +83,10 @@ private class IosMpvPlayer : IMpvPlayer {
     }
     override fun getProperty(name: String): String? {
         val h = handle ?: return null
-        memScoped {
-            val out = allocPointer<ByteVar>()
-            val r = mpv_get_property_string(h, name, out.ptr)
-            if (r < 0 || out.value == null) return null
-            val s = out.value!!.toKString()
-            mpv_free(out.value)
-            return s
-        }
+        val value = mpv_get_property_string(h, name) ?: return null
+        val result = value.toKString()
+        mpv_free(value)
+        return result
     }
     override fun terminate() {
         val h = handle ?: return
@@ -137,10 +122,9 @@ private class IosMpvPlayer : IMpvPlayer {
         
         if (type == MpvEventType.PropertyChange && event.data != null) {
              val prop = event.data!!.reinterpret<mpv_event_property>().pointed
-             if (prop.name != null) name = prop.name!!.toKString()
-             if (prop.format == MPV_FORMAT_STRING && prop.data != null) {
-                 val ptrPtr = prop.data!!.reinterpret<kotlinx.cinterop.CPointerVar<kotlinx.cinterop.ByteVar>>()
-                 value = ptrPtr.value?.toKString()
+             if (prop.name != null) {
+                 name = prop.name!!.toKString()
+                 value = getProperty(name)
              }
         }
 
@@ -157,21 +141,14 @@ private class IosMpvPlayer : IMpvPlayer {
             MPV_EVENT_START_FILE -> MpvEventType.StartFile
             MPV_EVENT_END_FILE -> MpvEventType.EndFile
             MPV_EVENT_FILE_LOADED -> MpvEventType.FileLoaded
-            MPV_EVENT_TRACKS_CHANGED -> MpvEventType.TracksChanged
-            MPV_EVENT_TRACK_SWITCHED -> MpvEventType.TrackSwitched
             MPV_EVENT_IDLE -> MpvEventType.Idle
-            MPV_EVENT_PAUSE -> MpvEventType.Pause
-            MPV_EVENT_UNPAUSE -> MpvEventType.Unpause
             MPV_EVENT_TICK -> MpvEventType.Tick
-            MPV_EVENT_SCRIPT_INPUT_DISPATCH -> MpvEventType.ScriptInputDispatch
             MPV_EVENT_CLIENT_MESSAGE -> MpvEventType.ClientMessage
             MPV_EVENT_VIDEO_RECONFIG -> MpvEventType.VideoReconfig
             MPV_EVENT_AUDIO_RECONFIG -> MpvEventType.AudioReconfig
-            MPV_EVENT_METADATA_UPDATE -> MpvEventType.MetadataUpdate
             MPV_EVENT_SEEK -> MpvEventType.Seek
             MPV_EVENT_PLAYBACK_RESTART -> MpvEventType.PlaybackRestart
             MPV_EVENT_PROPERTY_CHANGE -> MpvEventType.PropertyChange
-            MPV_EVENT_CHAPTER_CHANGE -> MpvEventType.ChapterChange
             MPV_EVENT_QUEUE_OVERFLOW -> MpvEventType.QueueOverflow
             MPV_EVENT_HOOK -> MpvEventType.Hook
             else -> MpvEventType.None
