@@ -48,6 +48,8 @@ class MpvPlayer(
             player.observeProperty("pause")
             player.observeProperty("time-pos")
             player.observeProperty("duration")
+        } else {
+            println("MpvPlayer: initialize failed")
         }
     }
 

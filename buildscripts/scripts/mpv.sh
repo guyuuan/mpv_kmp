@@ -61,6 +61,8 @@ ios_audio_opts=
 [ "$platform" = "ios" ] && ios_audio_opts="-Daudiounit=disabled -Davfoundation=disabled -Dcoreaudio=disabled -Dios-gl=disabled -Dvideotoolbox-gl=disabled"
 macos_jvm_opts="-Dcoreaudio=disabled -Davfoundation=disabled -Djack=disabled -Dcocoa=disabled -Dswift-build=disabled"
 [ "$platform" = "macos" ] && macos_jvm_opts="-Dcoreaudio=enabled -Davfoundation=disabled -Djack=disabled -Dcocoa=disabled -Dswift-build=disabled"
+android_link_opts=
+[ "$platform" = "android" ] && android_link_opts="-Dc_link_args=-lc++_shared"
 meson_setup_args=("$build")
 [ -f "$build/meson-private/coredata.dat" ] && meson_setup_args+=(--reconfigure --clearcache)
 [ -n "$meson_native_file" ] && meson_setup_args+=(--native-file "$meson_native_file")
@@ -76,6 +78,7 @@ meson setup "${meson_setup_args[@]}" --cross-file "$prefix_dir"/crossfile.txt \
     -Dmacos-cocoa-cb=disabled -Dmacos-media-player=disabled -Dmacos-touchbar=disabled \
     -Dgl-cocoa=disabled -Dplain-gl=enabled \
     -Dc_args=-DNO_BUILD_TIMESTAMPS \
+    $android_link_opts \
     $( [ "$cross_system" = "windows" ] && echo "-Dzlib=disabled" )
 
 patch_macos_coreaudio_utils_source
