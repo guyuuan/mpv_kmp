@@ -320,9 +320,19 @@ setup_prefix () {
         return 1
     }
 
+    sanitize_host_c () {
+        local cc="$1"
+
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            printf "env -u SDKROOT -u IPHONEOS_DEPLOYMENT_TARGET -u TVOS_DEPLOYMENT_TARGET -u WATCHOS_DEPLOYMENT_TARGET %s" "$cc"
+        else
+            printf "%s" "$cc"
+        fi
+    }
+
     host_python="$(find_host_python)"
     host_python=${host_python//\'/\'\\\'\'}
-    host_c="$(find_host_c)"
+    host_c="$(sanitize_host_c "$(find_host_c)")"
     host_c_bin="$(meson_arr_from_cmd "$host_c")"
     export meson_native_file="$prefix_dir/nativefile.txt"
     cat >"$prefix_dir/nativefile.tmp" <<NATIVEFILE

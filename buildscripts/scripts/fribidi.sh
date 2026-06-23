@@ -15,6 +15,15 @@ fi
 
 unset CC CXX # meson wants these unset
 
+if [ "$platform" = "ios" ] &&
+	[ -n "$meson_native_file" ] &&
+	[ -f "$meson_native_file" ] &&
+	[ -f "$build/build.ninja" ] &&
+	grep -q "'-u','SDKROOT'" "$meson_native_file" &&
+	grep -q '^ command = cc ' "$build/build.ninja"; then
+	rm -rf "$build"
+fi
+
 meson_setup_args=("$build")
 [ -f "$build/meson-private/coredata.dat" ] && meson_setup_args+=(--reconfigure)
 [ -n "$meson_native_file" ] && meson_setup_args+=(--native-file "$meson_native_file")

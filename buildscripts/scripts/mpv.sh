@@ -42,6 +42,15 @@ patch_macos_coreaudio_utils_source() {
     }
 }
 
+patch_ios_macos_sdk_link_args() {
+    [ "$platform" = "ios" ] || return 0
+
+    local ninja_file="$build/build.ninja"
+    [ -f "$ninja_file" ] || return 0
+
+    perl -0pi -e 's/ -isysroot \S*MacOSX\S*//g; s/ -L\/usr\/lib//g; s/ -L\/usr\/local\/lib//g' "$ninja_file"
+}
+
 if [ "$1" == "build" ]; then
 	true
 elif [ "$1" == "clean" ]; then
@@ -59,6 +68,8 @@ lua_opt="-Dlua=enabled"
 [ "$platform" = "ios" ] && lua_opt="-Dlua=disabled"
 ios_audio_opts=
 [ "$platform" = "ios" ] && ios_audio_opts="-Daudiounit=disabled -Davfoundation=disabled -Dcoreaudio=disabled -Dios-gl=disabled -Dvideotoolbox-gl=disabled"
+ios_macos_opts=
+[ "$platform" = "ios" ] && ios_macos_opts="-Dmacos-10-15-4-features=disabled -Dmacos-11-features=disabled -Dmacos-11-3-features=disabled -Dmacos-12-features=disabled"
 macos_jvm_opts="-Dcoreaudio=disabled -Davfoundation=disabled -Djack=disabled -Dcocoa=disabled -Dswift-build=disabled"
 [ "$platform" = "macos" ] && macos_jvm_opts="-Dcoreaudio=enabled -Davfoundation=disabled -Djack=disabled -Dcocoa=disabled -Dswift-build=disabled"
 android_link_opts=
@@ -69,6 +80,7 @@ meson_setup_args=("$build")
 meson setup "${meson_setup_args[@]}" --cross-file "$prefix_dir"/crossfile.txt \
 	--default-library shared \
 	-Diconv=disabled $lua_opt $ios_audio_opts \
+    $ios_macos_opts \
 	-Dlibmpv=true -Dcplayer=false \
     $macos_jvm_opts \
     -Dlibavdevice=disabled -Dlibbluray=disabled -Drubberband=disabled \
@@ -82,6 +94,7 @@ meson setup "${meson_setup_args[@]}" --cross-file "$prefix_dir"/crossfile.txt \
     $( [ "$cross_system" = "windows" ] && echo "-Dzlib=disabled" )
 
 patch_macos_coreaudio_utils_source
+patch_ios_macos_sdk_link_args
 
 ninja -C $build -j$cores
 if [ -f $build/libmpv.a ]; then
