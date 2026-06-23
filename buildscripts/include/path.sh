@@ -9,12 +9,12 @@ os=linux
 export os
 
 if [ "$os" == "mac" ]; then
-	[ -z "$cores" ] && cores=$(sysctl -n hw.ncpu)
+	[ -z "$cores" ] && cores=$(sysctl -n hw.ncpu 2>/dev/null || true)
 	# various things rely on GNU behaviour
 	export INSTALL=`which ginstall`
 	export SED=gsed
 else
-	[ -z "$cores" ] && cores=$(grep -c ^processor /proc/cpuinfo)
+	[ -z "$cores" ] && cores=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || true)
 fi
 cores=${cores:-4}
 

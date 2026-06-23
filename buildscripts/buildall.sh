@@ -251,12 +251,34 @@ setup_prefix () {
 
     local cpu_family=${target_triple%%-*}
 	[ "$cpu_family" == "i686" ] && cpu_family=x86
+	[ "$cpu_family" == "arm64" ] && cpu_family=aarch64
 
 	if ! command -v pkg-config >/dev/null; then
 		echo "pkg-config not provided!"
 		return 1
 	fi
     export PKG_CONFIG_PATH="$prefix_dir/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+
+    # Convert shell commands into Meson arrays: ['prog','arg1','arg2',...]
+    meson_arr_from_cmd () {
+        local cmd="$1"
+        local IFS=' '
+        read -r -a parts <<< "$cmd"
+        local out="["
+        local first=1
+        for p in "${parts[@]}"; do
+            # escape single quotes
+            p=${p//\'/\'\\\'\'}
+            if [ $first -eq 1 ]; then
+                out="$out'$p'"
+                first=0
+            else
+                out="$out,'$p'"
+            fi
+        done
+        out="$out]"
+        printf "%s" "$out"
+    }
 
     find_host_python () {
         local candidates=()
@@ -276,11 +298,36 @@ setup_prefix () {
         return 1
     }
 
+    find_host_c () {
+        local candidates=()
+        [ -n "$BUILD_CC" ] && candidates+=("$BUILD_CC")
+        [ -n "$CC_FOR_BUILD" ] && candidates+=("$CC_FOR_BUILD")
+        candidates+=(cc clang gcc /usr/bin/cc /usr/bin/clang)
+
+        local cc
+        for cc in "${candidates[@]}"; do
+            local IFS=' '
+            read -r -a parts <<< "$cc"
+            [ ${#parts[@]} -gt 0 ] || continue
+            command -v "${parts[0]}" >/dev/null 2>&1 || continue
+            if "${parts[@]}" --version >/dev/null 2>&1; then
+                printf "%s" "$cc"
+                return 0
+            fi
+        done
+
+        echo "No usable build-machine C compiler found; set BUILD_CC or CC_FOR_BUILD." >&2
+        return 1
+    }
+
     host_python="$(find_host_python)"
     host_python=${host_python//\'/\'\\\'\'}
+    host_c="$(find_host_c)"
+    host_c_bin="$(meson_arr_from_cmd "$host_c")"
     export meson_native_file="$prefix_dir/nativefile.txt"
     cat >"$prefix_dir/nativefile.tmp" <<NATIVEFILE
 [binaries]
+c = $host_c_bin
 python = '$host_python'
 python3 = '$host_python'
 NATIVEFILE
@@ -295,26 +342,6 @@ NATIVEFILE
         cpp_bin="['zig','c++','-target','$ZIG_TARGET']"
         ar_bin="['bash','$PWD/tools/ar-wrap.sh']"
     else
-        # Convert shell commands into Meson arrays: ['prog','arg1','arg2',...]
-        meson_arr_from_cmd () {
-            local cmd="$1"
-            local IFS=' '
-            read -r -a parts <<< "$cmd"
-            local out="["
-            local first=1
-            for p in "${parts[@]}"; do
-                # escape single quotes
-                p=${p//\'/\'\\\'\'}
-                if [ $first -eq 1 ]; then
-                    out="$out'$p'"
-                    first=0
-                else
-                    out="$out,'$p'"
-                fi
-            done
-            out="$out]"
-            printf "%s" "$out"
-        }
         c_bin="$(meson_arr_from_cmd "$CC")"
         cpp_bin="$(meson_arr_from_cmd "$CXX")"
         ar_bin="$(meson_arr_from_cmd "$AR")"
