@@ -469,6 +469,19 @@ verify_mpv_client_symbols () {
 
 copy_to_resources () {
     case "$platform" in
+        ios)
+            [ "$arch" = "arm64" ] || return 0
+            local src="$prefix_dir/lib"
+            [ -d "$src" ] || return 0
+            local dst="$PWD/../iosApp/lib"
+            mkdir -p "$dst"
+            rm -f "$dst"/*.dylib
+            for lib in "$src"/*.dylib; do
+                [ -e "$lib" ] || continue
+                should_copy_resource_lib "$lib" || continue
+                cp -fL "$lib" "$dst/$(basename "$lib")"
+            done
+        ;;
         macos|linux|windows)
             local os_id
             case "$platform" in

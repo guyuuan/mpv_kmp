@@ -2,21 +2,34 @@ package com.guyuuan.mpv_kmp
 
 import com.guyuuan.mpv_kmp.mpv.*
 import cnames.structs.mpv_handle
-import kotlinx.cinterop.CPointer
-import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.pointed
-import kotlinx.cinterop.toKString
+import cnames.structs.mpv_render_context
+import kotlinx.cinterop.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.cinterop.reinterpret
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import platform.posix.size_tVar
 import kotlin.concurrent.Volatile
 
 @OptIn(ExperimentalForeignApi::class)
-private class IosMpvPlayer : IMpvPlayer {
+internal interface IosRenderContextSupport {
+    fun createRenderContext(): Boolean
+    fun freeRenderContext()
+    fun renderSw(width: Int, height: Int, stride: Int, format: String, buffer: COpaquePointer): Int
+    fun setRenderCallback(callback: () -> Unit)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun mpvRenderUpdateCallback(data: COpaquePointer?) {
+    data?.asStableRef<() -> Unit>()?.get()?.invoke()
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
     private var handle: CPointer<mpv_handle>? = null
+    private var renderContext: CPointer<mpv_render_context>? = null
+    private var renderCallbackRef: StableRef<(() -> Unit)>? = null
     private var listener: ((MpvEvent) -> Unit)? = null
     @Volatile private var running = false
     private var scope: CoroutineScope? = null
@@ -25,21 +38,29 @@ private class IosMpvPlayer : IMpvPlayer {
     override fun initialize(): Boolean {
         if (handle != null) return true
         handle = mpv_create()
-        if (handle == null) return false
-        val r = mpv_initialize(handle)
-        return r == 0
+        val h = handle ?: return false
+        val voResult = mpv_set_option_string(h, "vo", "libmpv")
+        if (voResult != 0) {
+            println("IosMpvPlayer: failed to set vo=libmpv: $voResult (${mpvError(voResult)})")
+            mpv_terminate_destroy(h)
+            handle = null
+            return false
+        }
+        val r = mpv_initialize(h)
+        if (r != 0) {
+            println("IosMpvPlayer: mpv_initialize failed: $r (${mpvError(r)})")
+            mpv_terminate_destroy(h)
+            handle = null
+            return false
+        }
+        mpv_request_log_messages(h, "v")
+        return true
     }
     override fun attach(view: Any) {
-        val h = handle ?: return
-        if (view is CPointer<*>) {
-            mpv_set_property_string(h, "wid", view.rawValue.toLong().toString())
-        } else if (view is Long) {
-            mpv_set_property_string(h, "wid", view.toString())
-        }
+        // iOS renders through mpv_render_context; the window-id path does not draw into UIKit.
     }
     override fun detach() {
-        val h = handle ?: return
-        mpv_set_property_string(h, "wid", "0")
+        // See attach().
     }
     override fun commandString(cmd: String): Int {
         val h = handle ?: return -1
@@ -91,6 +112,7 @@ private class IosMpvPlayer : IMpvPlayer {
     override fun terminate() {
         val h = handle ?: return
         running = false
+        freeRenderContext()
         mpv_wakeup(h)
         mpv_terminate_destroy(h)
         handle = null
@@ -119,6 +141,14 @@ private class IosMpvPlayer : IMpvPlayer {
         val type = mapEventType(event.event_id)
         var name: String? = null
         var value: String? = null
+
+        if (type == MpvEventType.LogMessage && event.data != null) {
+            val log = event.data!!.reinterpret<mpv_event_log_message>().pointed
+            val level = log.level?.toKString()
+            val prefix = log.prefix?.toKString()
+            val text = log.text?.toKString()
+            println("mpv[$level] $prefix: $text")
+        }
         
         if (type == MpvEventType.PropertyChange && event.data != null) {
              val prop = event.data!!.reinterpret<mpv_event_property>().pointed
@@ -153,6 +183,94 @@ private class IosMpvPlayer : IMpvPlayer {
             MPV_EVENT_HOOK -> MpvEventType.Hook
             else -> MpvEventType.None
         }
+    }
+
+    override fun createRenderContext(): Boolean {
+        val h = handle ?: return false
+        if (renderContext != null) return true
+
+        return memScoped {
+            val api = MPV_RENDER_API_TYPE_SW.cstr.getPointer(this)
+            val params = allocArray<mpv_render_param>(2)
+            params[0].type = MPV_RENDER_PARAM_API_TYPE
+            params[0].data = api.reinterpret()
+            params[1].type = MPV_RENDER_PARAM_INVALID
+            params[1].data = null
+
+            val out = alloc<CPointerVarOf<CPointer<mpv_render_context>>>()
+            val result = mpv_render_context_create(out.ptr, h, params)
+            if (result == 0) {
+                renderContext = out.value
+                true
+            } else {
+                println("IosMpvPlayer: mpv_render_context_create failed: $result (${mpvError(result)})")
+                false
+            }
+        }
+    }
+
+    override fun freeRenderContext() {
+        val ctx = renderContext
+        if (ctx != null) {
+            mpv_render_context_set_update_callback(ctx, null, null)
+            mpv_render_context_free(ctx)
+            renderContext = null
+        }
+        renderCallbackRef?.dispose()
+        renderCallbackRef = null
+    }
+
+    override fun renderSw(width: Int, height: Int, stride: Int, format: String, buffer: COpaquePointer): Int {
+        val ctx = renderContext ?: return -1
+        if (width <= 0 || height <= 0 || stride <= 0) return -1
+
+        return memScoped {
+            val size = allocArray<IntVar>(2)
+            size[0] = width
+            size[1] = height
+
+            val formatPtr = format.cstr.getPointer(this)
+            val stridePtr = alloc<size_tVar>()
+            stridePtr.value = stride.toULong()
+
+            val params = allocArray<mpv_render_param>(5)
+            params[0].type = MPV_RENDER_PARAM_SW_SIZE
+            params[0].data = size.reinterpret()
+            params[1].type = MPV_RENDER_PARAM_SW_FORMAT
+            params[1].data = formatPtr.reinterpret()
+            params[2].type = MPV_RENDER_PARAM_SW_STRIDE
+            params[2].data = stridePtr.ptr.reinterpret()
+            params[3].type = MPV_RENDER_PARAM_SW_POINTER
+            params[3].data = buffer
+            params[4].type = MPV_RENDER_PARAM_INVALID
+            params[4].data = null
+
+            val result = mpv_render_context_render(ctx, params)
+            if (result == 0) {
+                mpv_render_context_report_swap(ctx)
+            } else {
+                println("IosMpvPlayer: mpv_render_context_render failed: $result (${mpvError(result)})")
+            }
+            result
+        }
+    }
+
+    override fun setRenderCallback(callback: () -> Unit) {
+        val ctx = renderContext ?: return
+        mpv_render_context_set_update_callback(ctx, null, null)
+        renderCallbackRef?.dispose()
+
+        val ref = StableRef.create(callback)
+        renderCallbackRef = ref
+        mpv_render_context_set_update_callback(
+            ctx,
+            staticCFunction(::mpvRenderUpdateCallback),
+            ref.asCPointer()
+        )
+    }
+
+    private fun mpvError(code: Int): String {
+        return mpv_error_string(code)?.toKString() ?: "unknown"
     }
 }
 

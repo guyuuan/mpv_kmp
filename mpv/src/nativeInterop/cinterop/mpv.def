@@ -1,2 +1,2 @@
-headers = mpv/client.h
+headers = mpv/client.h mpv/render.h
 package = com.guyuuan.mpv_kmp.mpv

@@ -25,6 +25,7 @@ kotlin {
         iosTarget.binaries.framework {
             baseName = "Shared"
             isStatic = true
+            binaryOption("bundleId", "com.guyuuan.mpv.kmp.mpv")
         }
         iosTarget.compilations.getByName("main").cinterops.create("mpv") {
             defFile("src/nativeInterop/cinterop/mpv.def")
