@@ -48,7 +48,27 @@ patch_ios_macos_sdk_link_args() {
     local ninja_file="$build/build.ninja"
     [ -f "$ninja_file" ] || return 0
 
-    perl -0pi -e 's/ -isysroot \S*MacOSX\S*//g; s/ -L\/usr\/lib//g; s/ -L\/usr\/local\/lib//g' "$ninja_file"
+    perl -0pi -e 's/ -isysroot \S*MacOSX\S*//g; s/ -L\/usr\/lib//g; s/ -L\/usr\/local\/lib//g; s/-install_name (?:\@rpath|\/usr\/local\/lib)\/libmpv\.[0-9]+\.dylib/-install_name \@rpath\/libmpv.dylib/g' "$ninja_file"
+}
+
+install_ios_unversioned_mpv_dylib() {
+    [ "$platform" = "ios" ] || return 0
+
+    local built_dylib="$build/libmpv.2.dylib"
+    local install_dylib="$prefix_dir/lib/libmpv.dylib"
+    [ -f "$built_dylib" ] || {
+        echo "Missing built iOS libmpv dylib: $built_dylib" >&2
+        return 1
+    }
+
+    rm -f "$install_dylib"
+    cp -f "$built_dylib" "$install_dylib"
+}
+
+prepare_ios_mpv_install_dir() {
+    [ "$platform" = "ios" ] || return 0
+
+    rm -f "$prefix_dir/lib/libmpv.dylib"
 }
 
 if [ "$1" == "build" ]; then
@@ -102,4 +122,6 @@ if [ -f $build/libmpv.a ]; then
 	# $0 clean
 	exec $0 build
 fi
+prepare_ios_mpv_install_dir
 DESTDIR="$prefix_dir" ninja -C $build install
+install_ios_unversioned_mpv_dylib

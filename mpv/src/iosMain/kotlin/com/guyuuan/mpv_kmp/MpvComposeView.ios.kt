@@ -57,6 +57,8 @@ private class IosMpvRenderView(
     private var bufferHeight = 0
     private var bufferStride = 0
     private var bufferSize = 0
+    private var loggedFirstRender = false
+    private var loggedEmptySize = false
 
     @Volatile
     private var renderPending = false
@@ -99,7 +101,13 @@ private class IosMpvRenderView(
         if (disposed) return
 
         val (width, height) = pixelSize()
-        if (width <= 0 || height <= 0) return
+        if (width <= 0 || height <= 0) {
+            if (!loggedEmptySize) {
+                loggedEmptySize = true
+                println("IosMpvRenderView: skip render for empty size ${width}x$height")
+            }
+            return
+        }
         if (!ensureBitmap(width, height)) return
 
         val target = buffer ?: return
@@ -109,6 +117,10 @@ private class IosMpvRenderView(
         val context = bitmapContext ?: return
         val cgImage = CGBitmapContextCreateImage(context) ?: return
         image = UIImage(cgImage)
+        if (!loggedFirstRender) {
+            loggedFirstRender = true
+            println("IosMpvRenderView: rendered first frame ${width}x$height")
+        }
         CGImageRelease(cgImage)
     }
 

@@ -39,13 +39,9 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         if (handle != null) return true
         handle = mpv_create()
         val h = handle ?: return false
-        val voResult = mpv_set_option_string(h, "vo", "libmpv")
-        if (voResult != 0) {
-            println("IosMpvPlayer: failed to set vo=libmpv: $voResult (${mpvError(voResult)})")
-            mpv_terminate_destroy(h)
-            handle = null
-            return false
-        }
+        if (!setOptionBeforeInitialize(h, "vo", "libmpv")) return false
+        if (!setOptionBeforeInitialize(h, "audio", "no")) return false
+        if (!setOptionBeforeInitialize(h, "ao", "null")) return false
         val r = mpv_initialize(h)
         if (r != 0) {
             println("IosMpvPlayer: mpv_initialize failed: $r (${mpvError(r)})")
@@ -54,6 +50,22 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
             return false
         }
         mpv_request_log_messages(h, "v")
+        if (!createRenderContext()) {
+            mpv_terminate_destroy(h)
+            handle = null
+            return false
+        }
+        return true
+    }
+
+    private fun setOptionBeforeInitialize(h: CPointer<mpv_handle>, name: String, value: String): Boolean {
+        val result = mpv_set_option_string(h, name, value)
+        if (result != 0) {
+            println("IosMpvPlayer: failed to set $name=$value: $result (${mpvError(result)})")
+            mpv_terminate_destroy(h)
+            handle = null
+            return false
+        }
         return true
     }
     override fun attach(view: Any) {
@@ -158,7 +170,26 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
              }
         }
 
+        when (type) {
+            MpvEventType.FileLoaded,
+            MpvEventType.VideoReconfig,
+            MpvEventType.PlaybackRestart,
+            MpvEventType.EndFile -> dumpPlaybackState(type)
+            else -> {}
+        }
+
         listener?.invoke(MpvEvent(type, name, value, event.error))
+    }
+
+    private fun dumpPlaybackState(type: MpvEventType) {
+        val state = listOf(
+            "vid=${getProperty("vid")}",
+            "video-codec=${getProperty("video-codec")}",
+            "vo-configured=${getProperty("vo-configured")}",
+            "video-out-params=${getProperty("video-out-params")}",
+            "estimated-vf-fps=${getProperty("estimated-vf-fps")}",
+        ).joinToString(", ")
+        println("IosMpvPlayer: $type state: $state")
     }
 
     private fun mapEventType(id: mpv_event_id): MpvEventType {
@@ -201,6 +232,7 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
             val result = mpv_render_context_create(out.ptr, h, params)
             if (result == 0) {
                 renderContext = out.value
+                println("IosMpvPlayer: mpv_render_context_create success")
                 true
             } else {
                 println("IosMpvPlayer: mpv_render_context_create failed: $result (${mpvError(result)})")

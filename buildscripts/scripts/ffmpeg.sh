@@ -48,6 +48,18 @@ if pkg-config --exists "dav1d >= 1.0.0"; then
     dav1d_flag="--enable-libdav1d"
 fi
 
+patch_ios_dylib_install_names() {
+    [ "$platform" = "ios" ] || return 0
+
+    local config_mak="ffbuild/config.mak"
+    [ -f "$config_mak" ] || {
+        echo "Missing FFmpeg config file: $config_mak" >&2
+        return 1
+    }
+
+    perl -0pi -e 's|-Wl,-install_name,\$\(INSTALL_NAME_DIR\)/\$\(SLIBNAME_WITH_MAJOR\)|-Wl,-install_name,\@rpath/\$(SLIBNAME)|g; s|^SLIB_INSTALL_NAME=.*$|SLIB_INSTALL_NAME=\$(SLIBNAME)|m; s|^SLIB_INSTALL_LINKS=.*$|SLIB_INSTALL_LINKS=|m' "$config_mak"
+}
+
 args=()
 case "$platform" in
     android)
@@ -84,6 +96,7 @@ case "$platform" in
             --disable-{stripping,doc}
             --disable-filter=gfxcapture
         )
+        [ "$platform" = "ios" ] && args+=(--install-name-dir=@rpath)
     ;;
 esac
 configure_env=(
@@ -100,6 +113,7 @@ if [ "$platform" = "ios" ]; then
 else
     env "${configure_env[@]}" ../configure "${args[@]}"
 fi
+patch_ios_dylib_install_names
 [ -f ffbuild/config.h ] && sed -i '' -e 's/^#define HAVE_SYSCTL_H 1/#define HAVE_SYSCTL_H 0/' -e 's/^#define HAVE_SYSCTL 1/#define HAVE_SYSCTL 0/' ffbuild/config.h || true
 [ -f config.h ] && sed -i '' -e 's/^#define HAVE_SYSCTL_H 1/#define HAVE_SYSCTL_H 0/' -e 's/^#define HAVE_SYSCTL 1/#define HAVE_SYSCTL 0/' config.h || true
 

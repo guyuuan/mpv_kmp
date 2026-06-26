@@ -21,6 +21,17 @@ fi
 MPV_FRAMEWORKS_DIR="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
 mkdir -p "$MPV_FRAMEWORKS_DIR"
 
+validate_dylib_references() {
+  dylib="$1"
+
+  if otool -L "$dylib" | grep -E '(/usr/local/lib/lib.*\.dylib|@rpath/lib.*\.[0-9]+.*\.dylib)' >/dev/null; then
+    echo "Invalid iOS dylib load path in $(basename "$dylib"):" >&2
+    otool -L "$dylib" | grep -E '(/usr/local/lib/lib.*\.dylib|@rpath/lib.*\.[0-9]+.*\.dylib)' >&2
+    echo "Rebuild the iOS native libraries so install names use @rpath/libxxx.dylib." >&2
+    exit 1
+  fi
+}
+
 for dylib in "$MPV_FRAMEWORKS_DIR"/lib*.dylib; do
   [ -e "$dylib" ] || continue
   rm -f "$dylib"
@@ -38,14 +49,7 @@ done
 
 for dylib in "$MPV_FRAMEWORKS_DIR"/lib*.dylib; do
   [ -e "$dylib" ] || continue
-  dylib_name=$(basename "$dylib")
-  install_name_tool -id "@rpath/$dylib_name" "$dylib" 2>/dev/null || true
-
-  for dep in "$MPV_FRAMEWORKS_DIR"/lib*.dylib; do
-    [ -e "$dep" ] || continue
-    dep_name=$(basename "$dep")
-    install_name_tool -change "/usr/local/lib/$dep_name" "@rpath/$dep_name" "$dylib" 2>/dev/null || true
-  done
+  validate_dylib_references "$dylib"
 
   if [ "${CODE_SIGNING_ALLOWED:-}" != "NO" ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
     if ! codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --timestamp=none --verbose=2 "$dylib"; then

@@ -20,5 +20,4 @@ node_modules/
 .vscode
 .trae
 buildscripts/deps
-iosApp/lib/
 .codegraph
