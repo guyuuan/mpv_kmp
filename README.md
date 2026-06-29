@@ -40,6 +40,41 @@ in your IDE’s toolbar or run it directly from the terminal:
 To build and run the development version of the iOS app, use the run configuration from the run widget
 in your IDE’s toolbar or open the [/iosApp](./iosApp) directory in Xcode and run it from there.
 
+### iOS dylib integration for KMP consumers
+
+KMP consumers should use the Gradle plugin together with the `mpv` dependency. The plugin links the final
+iOS framework against `libmpv.dylib` and embeds/signs the bundled mpv and FFmpeg dylibs during the Xcode
+framework build phase.
+
+```kotlin
+plugins {
+    id("com.guyuuan.mpv-kmp")
+}
+
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation("com.guyuuan.mpv_kmp:mpv:<version>")
+        }
+    }
+}
+```
+
+Use the plugin task from the iOS app target's Kotlin framework Run Script phase:
+
+```sh
+cd "$SRCROOT/.."
+./gradlew :shared:mpvKmpEmbedAndSignAppleFrameworkForXcode
+```
+
+The task expects the usual Xcode build environment variables such as `PLATFORM_NAME`,
+`TARGET_BUILD_DIR`, `FRAMEWORKS_FOLDER_PATH`, `CONFIGURATION`, and the code-signing identity. It copies
+the Kotlin framework and the required `lib*.dylib` files into `App.app/Frameworks` and signs them when
+code signing is enabled.
+
+Current iOS native libraries are device `iphoneos/arm64` only. Simulator support requires building and
+bundling matching simulator mpv/FFmpeg dylibs.
+
 ---
 
 Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
