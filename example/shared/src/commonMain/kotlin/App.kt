@@ -37,7 +37,7 @@ fun App() {
             )
             
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(text = "Status: ${if (playerState.isLoading) "Loading..." else if (playerState.isPaused) "Paused" else "Playing"}")
+                Text(text = "Status: ${playerState.state.name}")
                 Text(text = "Time: ${playerState.timePos} / ${playerState.duration}")
                 
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

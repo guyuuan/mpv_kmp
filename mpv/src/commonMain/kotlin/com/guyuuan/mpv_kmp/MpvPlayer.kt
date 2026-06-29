@@ -4,6 +4,17 @@ import androidx.compose.runtime.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
+enum class MpvPlayerState {
+    Idle,
+    Loading,
+    Playing,
+    Paused,
+    Stopped,
+    Ended,
+    Error,
+    Disposed
+}
+
 @Composable
 fun rememberMpvPlayer(
     scope: CoroutineScope = rememberCoroutineScope()
@@ -25,8 +36,17 @@ class MpvPlayer(
     val player: IMpvPlayer,
     private val scope: CoroutineScope
 ) {
-    var isPaused by mutableStateOf(false)
+    var state by mutableStateOf(MpvPlayerState.Idle)
         private set
+
+    val isPaused: Boolean
+        get() = state == MpvPlayerState.Paused
+
+    val isLoading: Boolean
+        get() = state == MpvPlayerState.Loading
+
+    val isPlaying: Boolean
+        get() = state == MpvPlayerState.Playing
 
     var timePos by mutableStateOf(0.0)
         private set
@@ -34,11 +54,13 @@ class MpvPlayer(
     var duration by mutableStateOf(0.0)
         private set
 
-    var isLoading by mutableStateOf(false)
-        private set
+    private var hasActiveFile = false
+    private var pauseProperty = false
+    private var stopRequested = false
 
     fun setup() {
         if (player.initialize()) {
+            updateState(MpvPlayerState.Idle)
             player.setCoroutineScope(scope)
             player.setEventListener { event ->
                 scope.launch {
@@ -49,39 +71,119 @@ class MpvPlayer(
             player.observeProperty("time-pos")
             player.observeProperty("duration")
         } else {
+            updateState(MpvPlayerState.Error)
             println("MpvPlayer: initialize failed")
         }
     }
 
     private fun handleEvent(event: MpvEvent) {
+        if (event.error < 0) {
+            hasActiveFile = false
+            stopRequested = false
+            updateState(MpvPlayerState.Error)
+            return
+        }
+
         when (event.type) {
             MpvEventType.PropertyChange -> {
                 when (event.name) {
-                    "pause" -> isPaused = event.value == "yes" || event.value == "true"
+                    "pause" -> handlePauseProperty(event.value)
                     "time-pos" -> timePos = event.value?.toDoubleOrNull() ?: 0.0
                     "duration" -> duration = event.value?.toDoubleOrNull() ?: 0.0
                 }
             }
-            MpvEventType.Pause -> isPaused = true
-            MpvEventType.Unpause -> isPaused = false
-            MpvEventType.StartFile -> isLoading = true
-            MpvEventType.FileLoaded -> isLoading = false
-            MpvEventType.EndFile -> isLoading = false
+            MpvEventType.Pause -> {
+                pauseProperty = true
+                if (hasActiveFile) {
+                    updateState(MpvPlayerState.Paused)
+                }
+            }
+            MpvEventType.Unpause -> {
+                pauseProperty = false
+                if (hasActiveFile) {
+                    updateState(MpvPlayerState.Playing)
+                }
+            }
+            MpvEventType.StartFile -> {
+                hasActiveFile = false
+                stopRequested = false
+                updateState(MpvPlayerState.Loading)
+            }
+            MpvEventType.FileLoaded -> {
+                hasActiveFile = true
+                updateState(if (pauseProperty) MpvPlayerState.Paused else MpvPlayerState.Playing)
+            }
+            MpvEventType.PlaybackRestart -> {
+                hasActiveFile = true
+                updateState(if (pauseProperty) MpvPlayerState.Paused else MpvPlayerState.Playing)
+            }
+            MpvEventType.EndFile -> {
+                hasActiveFile = false
+                updateState(if (stopRequested) MpvPlayerState.Stopped else MpvPlayerState.Ended)
+                stopRequested = false
+            }
+            MpvEventType.Idle -> {
+                if (!hasActiveFile && state == MpvPlayerState.Loading) {
+                    updateState(MpvPlayerState.Idle)
+                }
+            }
+            MpvEventType.Shutdown -> {
+                hasActiveFile = false
+                stopRequested = false
+                updateState(MpvPlayerState.Disposed)
+            }
             else -> {}
         }
     }
 
-    fun load(url: String): Int = player.load(url)
+    private fun handlePauseProperty(value: String?) {
+        pauseProperty = value == "yes" || value == "true"
+        if (!hasActiveFile) return
+        updateState(if (pauseProperty) MpvPlayerState.Paused else MpvPlayerState.Playing)
+    }
+
+    private fun updateState(newState: MpvPlayerState) {
+        if (state == MpvPlayerState.Disposed && newState != MpvPlayerState.Disposed) return
+        state = newState
+    }
+
+    fun load(url: String): Int {
+        val result = player.load(url)
+        if (result >= 0) {
+            hasActiveFile = false
+            stopRequested = false
+            timePos = 0.0
+            duration = 0.0
+            updateState(MpvPlayerState.Loading)
+        } else {
+            updateState(MpvPlayerState.Error)
+        }
+        return result
+    }
 
     fun play(): Int {
         val result = player.play()
-        if (result >= 0) isPaused = false
+        if (result >= 0) {
+            pauseProperty = false
+            if (hasActiveFile) {
+                updateState(MpvPlayerState.Playing)
+            }
+        } else {
+            updateState(MpvPlayerState.Error)
+        }
         return result
     }
 
     fun pause(): Int {
         val result = player.pause()
-        if (result >= 0) isPaused = true
+        if (result >= 0) {
+            pauseProperty = true
+            if (hasActiveFile) {
+                updateState(MpvPlayerState.Paused)
+            }
+        } else {
+            updateState(MpvPlayerState.Error)
+        }
         return result
     }
     
@@ -89,13 +191,27 @@ class MpvPlayer(
         if (isPaused) play() else pause()
     }
 
-    fun stop(): Int = player.stop()
+    fun stop(): Int {
+        val result = player.stop()
+        if (result >= 0) {
+            hasActiveFile = false
+            stopRequested = true
+            timePos = 0.0
+            updateState(MpvPlayerState.Stopped)
+        } else {
+            updateState(MpvPlayerState.Error)
+        }
+        return result
+    }
     
     fun seek(position: Double) {
         player.commandString("seek $position absolute")
     }
 
     fun dispose() {
+        hasActiveFile = false
+        stopRequested = false
+        updateState(MpvPlayerState.Disposed)
         player.terminate()
     }
 }
