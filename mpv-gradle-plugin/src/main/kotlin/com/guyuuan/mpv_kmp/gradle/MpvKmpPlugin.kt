@@ -59,7 +59,7 @@ class MpvKmpPlugin : Plugin<Project> {
             "embedMpvKmpIosDylibsForXcode",
             EmbedMpvKmpIosDylibsForXcodeTask::class.java
         ) { task ->
-            task.nativeLibrariesDirectory.set(extractIosDylibs.flatMap { it.outputDirectory }.map { it.dir("iphoneos") })
+            task.nativeLibrariesRootDirectory.set(extractIosDylibs.flatMap { it.outputDirectory })
             task.validateDylibs.set(extension.validateDylibs)
             task.dependsOn(extractIosDylibs)
             task.outputs.upToDateWhen { false }
@@ -79,13 +79,20 @@ class MpvKmpPlugin : Plugin<Project> {
         project.plugins.withId("org.jetbrains.kotlin.multiplatform") {
             val kotlin = project.extensions.getByType(KotlinMultiplatformExtension::class.java)
             kotlin.targets.configureEach { target ->
-                if (target !is KotlinNativeTarget || target.name != "iosArm64") return@configureEach
+                if (target !is KotlinNativeTarget) return@configureEach
+                val nativePlatform = when (target.name) {
+                    "iosArm64" -> "iphoneos"
+                    "iosSimulatorArm64" -> "iphonesimulator"
+                    else -> return@configureEach
+                }
                 target.binaries.withType(Framework::class.java).configureEach { framework ->
-                    embedFramework.configure { task ->
-                        task.frameworkName.convention(framework.baseName)
+                    if (target.name == "iosArm64") {
+                        embedFramework.configure { task ->
+                            task.frameworkName.convention(framework.baseName)
+                        }
                     }
                     framework.linkerOpts(
-                        "-L${extractIosDylibs.get().outputDirectory.get().dir("iphoneos").asFile.absolutePath}",
+                        "-L${extractIosDylibs.get().outputDirectory.get().dir(nativePlatform).asFile.absolutePath}",
                         "-lmpv",
                         "-Wl,-rpath,@loader_path/.."
                     )
@@ -302,17 +309,22 @@ abstract class ExtractMpvKmpIosDylibsTask : DefaultTask() {
     @TaskAction
     fun extract() {
         val outputRoot = outputDirectory.get().asFile
-        val outputDir = outputRoot.resolve("iphoneos")
-        outputDir.mkdirs()
+        NativeLibraries.applePlatforms.forEach { platform ->
+            val outputDir = outputRoot.resolve(platform)
+            outputDir.mkdirs()
 
-        NativeLibraries.names.forEach { name ->
-            val resourcePath = "com/guyuuan/mpv_kmp/nativeLibs/iphoneos/$name"
-            val target = outputDir.resolve(name)
-            javaClass.classLoader.getResourceAsStream(resourcePath).use { input ->
-                requireNotNull(input) { "Missing bundled mpv native library resource: $resourcePath" }
-                target.outputStream().use { output -> input.copyTo(output) }
+            NativeLibraries.names.forEach { name ->
+                val resourcePath = "com/guyuuan/mpv_kmp/nativeLibs/$platform/$name"
+                val target = outputDir.resolve(name)
+                javaClass.classLoader.getResourceAsStream(resourcePath).use { input ->
+                    if (input == null) {
+                        if (platform == "iphonesimulator") return@forEach
+                        error("Missing bundled mpv native library resource: $resourcePath")
+                    }
+                    input.use { stream -> target.outputStream().use { output -> stream.copyTo(output) } }
+                }
+                target.setWritable(true)
             }
-            target.setWritable(true)
         }
     }
 }
@@ -321,7 +333,7 @@ abstract class ExtractMpvKmpIosDylibsTask : DefaultTask() {
 abstract class EmbedMpvKmpIosDylibsForXcodeTask : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val nativeLibrariesDirectory: DirectoryProperty
+    abstract val nativeLibrariesRootDirectory: DirectoryProperty
 
     @get:Input
     abstract val validateDylibs: Property<Boolean>
@@ -333,7 +345,7 @@ abstract class EmbedMpvKmpIosDylibsForXcodeTask : DefaultTask() {
     @TaskAction
     fun embed() {
         val platformName = System.getenv("PLATFORM_NAME")
-        if (platformName != "iphoneos" && !force) {
+        if (platformName !in NativeLibraries.applePlatforms && !force) {
             logger.lifecycle("Skipping mpv iOS dylib embedding for PLATFORM_NAME=${platformName ?: "<unset>"}")
             return
         }
@@ -344,8 +356,11 @@ abstract class EmbedMpvKmpIosDylibsForXcodeTask : DefaultTask() {
             "TARGET_BUILD_DIR is required. Run this task from the Xcode Kotlin framework build phase."
         }
 
-        val sourceDir = nativeLibrariesDirectory.get().asFile
-        require(sourceDir.isDirectory) { "Missing mpv native library directory: $sourceDir" }
+        val nativePlatform = platformName?.takeIf { it in NativeLibraries.applePlatforms } ?: "iphoneos"
+        val sourceDir = nativeLibrariesRootDirectory.get().asFile.resolve(nativePlatform)
+        require(sourceDir.isDirectory) {
+            "Missing mpv native library directory for $nativePlatform: $sourceDir"
+        }
 
         val frameworksDir = File(targetBuildDir, frameworksFolderPath)
         frameworksDir.mkdirs()
@@ -416,6 +431,8 @@ abstract class EmbedMpvKmpIosDylibsForXcodeTask : DefaultTask() {
 }
 
 private object NativeLibraries {
+    val applePlatforms = setOf("iphoneos", "iphonesimulator")
+
     val names = listOf(
         "libavcodec.dylib",
         "libavdevice.dylib",
