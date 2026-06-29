@@ -98,8 +98,12 @@ The task expects the usual Xcode build environment variables such as `PLATFORM_N
 the Kotlin framework and the required `lib*.dylib` files into `App.app/Frameworks` and signs them when
 code signing is enabled.
 
-Current iOS native libraries are device `iphoneos/arm64` only. Simulator support requires building and
-bundling matching simulator mpv/FFmpeg dylibs.
+The bundled iOS native libraries include `iphoneos/arm64` and `iphonesimulator/arm64`. Rebuild the simulator
+bundle with:
+
+```sh
+./buildscripts/buildall.sh --platform ios --arch arm64-simulator mpv
+```
 
 ---
 

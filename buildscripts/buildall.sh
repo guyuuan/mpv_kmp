@@ -122,6 +122,11 @@ load_target () {
                     sdk=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)
                     prefix_name=ios-arm64
                 ;;
+                arm64-simulator|simulator-arm64)
+                    export target_triple=arm64-apple-ios-simulator
+                    sdk=$(xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null || true)
+                    prefix_name=ios-arm64-simulator
+                ;;
                 x86_64)
                     export target_triple=x86_64-apple-ios-simulator
                     sdk=$(xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null || true)
@@ -132,11 +137,16 @@ load_target () {
                     exit 1
                 ;;
             esac
-            if [ "$1" = "x86_64" ]; then
-                export CC="xcrun --sdk iphonesimulator clang -arch x86_64 -mios-simulator-version-min=13.0"
-                export CXX="xcrun --sdk iphonesimulator clang++ -arch x86_64 -mios-simulator-version-min=13.0"
-                export OBJC="xcrun --sdk iphonesimulator clang -arch x86_64 -mios-simulator-version-min=13.0"
-                export OBJCXX="xcrun --sdk iphonesimulator clang++ -arch x86_64 -mios-simulator-version-min=13.0"
+            if [ "$1" = "x86_64" ] || [ "$1" = "arm64-simulator" ] || [ "$1" = "simulator-arm64" ]; then
+                local simulator_arch
+                case "$1" in
+                    x86_64) simulator_arch=x86_64 ;;
+                    *) simulator_arch=arm64 ;;
+                esac
+                export CC="xcrun --sdk iphonesimulator clang -arch $simulator_arch -mios-simulator-version-min=13.0"
+                export CXX="xcrun --sdk iphonesimulator clang++ -arch $simulator_arch -mios-simulator-version-min=13.0"
+                export OBJC="xcrun --sdk iphonesimulator clang -arch $simulator_arch -mios-simulator-version-min=13.0"
+                export OBJCXX="xcrun --sdk iphonesimulator clang++ -arch $simulator_arch -mios-simulator-version-min=13.0"
             else
                 export CC="xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=13.0"
                 export CXX="xcrun --sdk iphoneos clang++ -arch arm64 -miphoneos-version-min=13.0"
@@ -150,8 +160,10 @@ load_target () {
                 export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-isysroot $sdk"
                 export LDFLAGS="${LDFLAGS:+$LDFLAGS }-isysroot $sdk"
             fi
-            export CFLAGS="${CFLAGS:+$CFLAGS }-fembed-bitcode"
-            export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-fembed-bitcode"
+            if [ "$1" = "arm64" ]; then
+                export CFLAGS="${CFLAGS:+$CFLAGS }-fembed-bitcode"
+                export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-fembed-bitcode"
+            fi
         ;;
         linux)
             case "$1" in
@@ -548,10 +560,15 @@ finalize_desktop_resource_dir () {
 copy_to_resources () {
     case "$platform" in
         ios)
-            [ "$arch" = "arm64" ] || return 0
             local src="$prefix_dir/lib"
             [ -d "$src" ] || return 0
-            local dst="$PWD/../mpv/src/iosMain/nativeLibs/iphoneos"
+            local native_platform
+            case "$arch" in
+                arm64) native_platform=iphoneos ;;
+                arm64-simulator|simulator-arm64|x86_64) native_platform=iphonesimulator ;;
+                *) return 0 ;;
+            esac
+            local dst="$PWD/../mpv/src/iosMain/nativeLibs/$native_platform"
             mkdir -p "$dst"
             rm -f "$dst"/*.dylib
             for lib in "$src"/*.dylib; do
@@ -678,7 +695,7 @@ usage () {
 		"--clean        Clean build dirs before compiling" \
         "--gcc          Use gcc compiler (unsupported!)" \
         "--platform <p> Target platform (default: android; supported: android, macos, ios, linux, windows)" \
-        "--arch <arch>  Target arch (android: armv7l,arm64,x86,x86_64; macos: x86_64,arm64,universal; ios: arm64,x86_64; linux: x86_64,aarch64; windows: x86_64,aarch64)" \
+        "--arch <arch>  Target arch (android: armv7l,arm64,x86,x86_64; macos: x86_64,arm64,universal; ios: arm64,arm64-simulator,x86_64; linux: x86_64,aarch64; windows: x86_64,aarch64)" \
         "--sysroot <d>  Sysroot path used when cross-compiling linux"
 	exit 0
 }
