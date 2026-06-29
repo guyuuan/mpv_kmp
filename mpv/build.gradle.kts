@@ -19,6 +19,29 @@ val iosNativeLibrariesZip by tasks.registering(Zip::class) {
         include("lib*.dylib")
     }
 }
+val desktopNativeResourcesDir = layout.projectDirectory.dir("src/jvmMain/resources").asFile
+val desktopNativePlatforms = desktopNativeResourcesDir
+    .listFiles()
+    ?.filter { candidate -> candidate.isDirectory && candidate.listFiles()?.any { it.isFile } == true }
+    ?.map { it.name }
+    ?.sorted()
+    ?: emptyList()
+
+fun String.toDesktopNativeTaskSuffix(): String =
+    split("-").joinToString("") { part ->
+        part.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    }
+
+val desktopNativeLibrariesZips = desktopNativePlatforms.map { platform ->
+    tasks.register<Zip>("${platform.toDesktopNativeTaskSuffix()}MpvKmpDesktopNativeLibrariesZip") {
+        group = "publishing"
+        description = "Packages JVM desktop mpv native libraries for $platform."
+        archiveClassifier.set("jvm-$platform-native-libs")
+        from(desktopNativeResourcesDir.resolve(platform)) {
+            include("*")
+        }
+    }
+}
 
 kotlin {
     android {
@@ -72,6 +95,7 @@ publishing {
     publications.withType<MavenPublication>().configureEach {
         if (name == "kotlinMultiplatform") {
             artifact(iosNativeLibrariesZip)
+            desktopNativeLibrariesZips.forEach { artifact(it) }
         }
     }
 }

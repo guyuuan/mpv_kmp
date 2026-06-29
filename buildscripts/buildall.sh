@@ -438,11 +438,11 @@ compile_macos_jvm_shim () {
 should_copy_resource_lib () {
     local lib_name="$(basename "$1")"
 
-    case "$lib_name" in
-        *.[0-9]*.dylib)
+    case "$platform:$lib_name" in
+        macos:*.[0-9]*.dylib|ios:*.[0-9]*.dylib)
             return 1
         ;;
-        *.dylib|*.so|*.dll)
+        macos:*.dylib|ios:*.dylib|linux:*.so|linux:*.so.*|windows:*.dll)
             return 0
         ;;
         *)
@@ -465,6 +465,84 @@ verify_mpv_client_symbols () {
             fi
         ;;
     esac
+}
+
+macos_unversioned_dylib_name () {
+    printf '%s\n' "$1" | sed -E 's/\.[0-9]+(\.[0-9]+)*\.dylib$/.dylib/'
+}
+
+rewrite_macos_resource_dylibs () {
+    [ "$platform" = "macos" ] || return 0
+
+    local dst_dir="$1"
+    local lib name dep dep_base target_name
+    for lib in "$dst_dir"/*.dylib; do
+        [ -e "$lib" ] || continue
+        name="$(basename "$lib")"
+        install_name_tool -id "@loader_path/$name" "$lib"
+    done
+
+    for lib in "$dst_dir"/*.dylib; do
+        [ -e "$lib" ] || continue
+        while read -r dep; do
+            [ -n "$dep" ] || continue
+            dep_base="$(basename "$dep")"
+            target_name="$(macos_unversioned_dylib_name "$dep_base")"
+            [ -f "$dst_dir/$target_name" ] || continue
+            install_name_tool -change "$dep" "@loader_path/$target_name" "$lib"
+        done < <(otool -L "$lib" | awk 'NR > 1 { print $1 }')
+    done
+}
+
+rewrite_linux_resource_sonames () {
+    [ "$platform" = "linux" ] || return 0
+
+    command -v patchelf >/dev/null 2>&1 || {
+        echo "patchelf is required to package Linux JVM native libraries" >&2
+        return 1
+    }
+
+    local dst_dir="$1"
+    local lib
+    for lib in "$dst_dir"/*.so "$dst_dir"/*.so.*; do
+        [ -e "$lib" ] || continue
+        chmod u+w "$lib"
+        patchelf --set-rpath '$ORIGIN' "$lib"
+    done
+}
+
+ensure_windows_main_dll () {
+    [ "$platform" = "windows" ] || return 0
+
+    local dst_dir="$1"
+    local candidate
+    [ -f "$dst_dir/mpv.dll" ] && return 0
+    for candidate in "$dst_dir"/mpv*.dll "$dst_dir"/libmpv*.dll; do
+        [ -e "$candidate" ] || continue
+        cp -fL "$candidate" "$dst_dir/mpv.dll"
+        return 0
+    done
+}
+
+copy_resource_libs_from_dir () {
+    local src_dir="$1"
+    local dst_dir="$2"
+    local lib
+
+    [ -d "$src_dir" ] || return 0
+    for lib in "$src_dir"/*.dylib "$src_dir"/*.so "$src_dir"/*.so.* "$src_dir"/*.dll; do
+        [ -e "$lib" ] || continue
+        should_copy_resource_lib "$lib" || continue
+        verify_mpv_client_symbols "$lib"
+        cp -fL "$lib" "$dst_dir/$(basename "$lib")"
+    done
+}
+
+finalize_desktop_resource_dir () {
+    local dst_dir="$1"
+    rewrite_macos_resource_dylibs "$dst_dir"
+    rewrite_linux_resource_sonames "$dst_dir"
+    ensure_windows_main_dll "$dst_dir"
 }
 
 copy_to_resources () {
@@ -497,19 +575,16 @@ copy_to_resources () {
                 for a in aarch64 x86-64; do
                     local dst1="$res_base/$os_id-$a"
                     mkdir -p "$dst1"
-                    rm -f "$dst1"/*.dylib "$dst1"/*.so "$dst1"/*.dll
+                    rm -f "$dst1"/*.dylib "$dst1"/*.so "$dst1"/*.so.* "$dst1"/*.dll
                 done
-                for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
-                    [ -e "$lib" ] || continue
-                    should_copy_resource_lib "$lib" || continue
-                    verify_mpv_client_symbols "$lib"
-                    for a in aarch64 x86-64; do
-                        local dst1="$res_base/$os_id-$a"
-                        cp -f "$lib" "$dst1/$(basename "$lib")"
-                    done
+                for a in aarch64 x86-64; do
+                    local dst1="$res_base/$os_id-$a"
+                    copy_resource_libs_from_dir "$src" "$dst1"
                 done
                 compile_macos_jvm_shim aarch64 "$res_base/$os_id-aarch64"
                 compile_macos_jvm_shim x86-64 "$res_base/$os_id-x86-64"
+                finalize_desktop_resource_dir "$res_base/$os_id-aarch64"
+                finalize_desktop_resource_dir "$res_base/$os_id-x86-64"
             else
                 local arch_id
                 case "$arch" in
@@ -518,19 +593,20 @@ copy_to_resources () {
                     x86) arch_id=x86 ;;
                     *) arch_id="$arch" ;;
                 esac
-                local src="$prefix_dir/lib"
-                [ -d "$src" ] || src="$prefix_dir/bin"
-                [ -d "$src" ] || return 0
                 local dst1="$res_base/$os_id-$arch_id"
                 mkdir -p "$dst1"
-                rm -f "$dst1"/*.dylib "$dst1"/*.so "$dst1"/*.dll
-                for lib in "$src"/*.dylib "$src"/*.so "$src"/*.dll; do
-                    [ -e "$lib" ] || continue
-                    should_copy_resource_lib "$lib" || continue
-                    verify_mpv_client_symbols "$lib"
-                    cp -f "$lib" "$dst1/$(basename "$lib")"
-                done
+                rm -f "$dst1"/*.dylib "$dst1"/*.so "$dst1"/*.so.* "$dst1"/*.dll
+                if [ "$platform" = "windows" ]; then
+                    copy_resource_libs_from_dir "$prefix_dir/bin" "$dst1"
+                    copy_resource_libs_from_dir "$prefix_dir/lib" "$dst1"
+                else
+                    local src="$prefix_dir/lib"
+                    [ -d "$src" ] || src="$prefix_dir/bin"
+                    [ -d "$src" ] || return 0
+                    copy_resource_libs_from_dir "$src" "$dst1"
+                fi
                 compile_macos_jvm_shim "$arch_id" "$res_base/$os_id-$arch_id"
+                finalize_desktop_resource_dir "$dst1"
             fi
         ;;
     esac
