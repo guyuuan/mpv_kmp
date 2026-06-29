@@ -54,7 +54,6 @@ class MpvPlayer(
     }
 
     private fun handleEvent(event: MpvEvent) {
-        println("handle event: $event")
         when (event.type) {
             MpvEventType.PropertyChange -> {
                 when (event.name) {

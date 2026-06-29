@@ -87,7 +87,7 @@ echo "prefix_dir => $prefix_dir"
 lua_opt="-Dlua=enabled"
 [ "$platform" = "ios" ] && lua_opt="-Dlua=disabled"
 ios_audio_opts=
-[ "$platform" = "ios" ] && ios_audio_opts="-Daudiounit=disabled -Davfoundation=disabled -Dcoreaudio=disabled -Dios-gl=disabled -Dvideotoolbox-gl=disabled"
+[ "$platform" = "ios" ] && ios_audio_opts="-Daudiounit=disabled -Davfoundation=disabled -Dcoreaudio=disabled -Dios-gl=enabled -Dvideotoolbox-gl=disabled"
 ios_macos_opts=
 [ "$platform" = "ios" ] && ios_macos_opts="-Dmacos-10-15-4-features=disabled -Dmacos-11-features=disabled -Dmacos-11-3-features=disabled -Dmacos-12-features=disabled"
 macos_jvm_opts="-Dcoreaudio=disabled -Davfoundation=disabled -Djack=disabled -Dcocoa=disabled -Dswift-build=disabled"

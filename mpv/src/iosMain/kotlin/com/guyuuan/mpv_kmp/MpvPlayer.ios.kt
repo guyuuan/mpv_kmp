@@ -9,14 +9,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import platform.posix.size_tVar
+import platform.posix.RTLD_LAZY
+import platform.posix.dlopen
+import platform.posix.dlsym
 import kotlin.concurrent.Volatile
 
 @OptIn(ExperimentalForeignApi::class)
 internal interface IosRenderContextSupport {
     fun createRenderContext(): Boolean
     fun freeRenderContext()
-    fun renderSw(width: Int, height: Int, stride: Int, format: String, buffer: COpaquePointer): Int
+    fun updateRenderContext(): Boolean
+    fun renderGl(width: Int, height: Int, fbo: Int = 0, internalFormat: Int = 0): Int
     fun setRenderCallback(callback: () -> Unit)
 }
 
@@ -24,6 +27,27 @@ internal interface IosRenderContextSupport {
 private fun mpvRenderUpdateCallback(data: COpaquePointer?) {
     data?.asStableRef<() -> Unit>()?.get()?.invoke()
 }
+
+@OptIn(ExperimentalForeignApi::class)
+private fun mpvGetOpenGlProcAddress(ctx: COpaquePointer?, name: CPointer<ByteVar>?): COpaquePointer? {
+    val symbol = name?.toKString() ?: return null
+    return dlsym(openGlEsHandle(), symbol) ?: dlsym(null, symbol)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun openGlEsHandle(): COpaquePointer? {
+    if (openGlEsFrameworkHandle == null) {
+        openGlEsFrameworkHandle = dlopen(
+            "/System/Library/Frameworks/OpenGLES.framework/OpenGLES",
+            RTLD_LAZY
+        )
+    }
+    return openGlEsFrameworkHandle
+}
+
+@Volatile
+@OptIn(ExperimentalForeignApi::class)
+private var openGlEsFrameworkHandle: COpaquePointer? = null
 
 @OptIn(ExperimentalForeignApi::class)
 private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
@@ -42,6 +66,10 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         if (!setOptionBeforeInitialize(h, "vo", "libmpv")) return false
         if (!setOptionBeforeInitialize(h, "audio", "no")) return false
         if (!setOptionBeforeInitialize(h, "ao", "null")) return false
+        setOptionalOptionBeforeInitialize(h, "profile", "sw-fast")
+        setOptionalOptionBeforeInitialize(h, "sws-fast", "yes")
+        setOptionalOptionBeforeInitialize(h, "zimg-fast", "yes")
+        setOptionalOptionBeforeInitialize(h, "vd-lavc-dr", "no")
         val r = mpv_initialize(h)
         if (r != 0) {
             println("IosMpvPlayer: mpv_initialize failed: $r (${mpvError(r)})")
@@ -50,12 +78,14 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
             return false
         }
         mpv_request_log_messages(h, "v")
-        if (!createRenderContext()) {
-            mpv_terminate_destroy(h)
-            handle = null
-            return false
-        }
         return true
+    }
+
+    private fun setOptionalOptionBeforeInitialize(h: CPointer<mpv_handle>, name: String, value: String) {
+        val result = mpv_set_option_string(h, name, value)
+        if (result != 0) {
+            println("IosMpvPlayer: ignored optional $name=$value: $result (${mpvError(result)})")
+        }
     }
 
     private fun setOptionBeforeInitialize(h: CPointer<mpv_handle>, name: String, value: String): Boolean {
@@ -221,21 +251,27 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         if (renderContext != null) return true
 
         return memScoped {
-            val api = MPV_RENDER_API_TYPE_SW.cstr.getPointer(this)
-            val params = allocArray<mpv_render_param>(2)
+            val api = MPV_RENDER_API_TYPE_OPENGL.cstr.getPointer(this)
+            val glInitParams = alloc<mpv_opengl_init_params>()
+            glInitParams.get_proc_address = staticCFunction(::mpvGetOpenGlProcAddress)
+            glInitParams.get_proc_address_ctx = null
+
+            val params = allocArray<mpv_render_param>(3)
             params[0].type = MPV_RENDER_PARAM_API_TYPE
             params[0].data = api.reinterpret()
-            params[1].type = MPV_RENDER_PARAM_INVALID
-            params[1].data = null
+            params[1].type = MPV_RENDER_PARAM_OPENGL_INIT_PARAMS
+            params[1].data = glInitParams.ptr.reinterpret()
+            params[2].type = MPV_RENDER_PARAM_INVALID
+            params[2].data = null
 
             val out = alloc<CPointerVarOf<CPointer<mpv_render_context>>>()
             val result = mpv_render_context_create(out.ptr, h, params)
             if (result == 0) {
                 renderContext = out.value
-                println("IosMpvPlayer: mpv_render_context_create success")
+                println("IosMpvPlayer: OpenGL mpv_render_context_create success")
                 true
             } else {
-                println("IosMpvPlayer: mpv_render_context_create failed: $result (${mpvError(result)})")
+                println("IosMpvPlayer: OpenGL mpv_render_context_create failed: $result (${mpvError(result)})")
                 false
             }
         }
@@ -252,30 +288,32 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         renderCallbackRef = null
     }
 
-    override fun renderSw(width: Int, height: Int, stride: Int, format: String, buffer: COpaquePointer): Int {
+    override fun updateRenderContext(): Boolean {
+        val ctx = renderContext ?: return false
+        return (mpv_render_context_update(ctx) and 1uL) != 0uL
+    }
+
+    override fun renderGl(width: Int, height: Int, fbo: Int, internalFormat: Int): Int {
         val ctx = renderContext ?: return -1
-        if (width <= 0 || height <= 0 || stride <= 0) return -1
+        if (width <= 0 || height <= 0) return -1
 
         return memScoped {
-            val size = allocArray<IntVar>(2)
-            size[0] = width
-            size[1] = height
+            val target = alloc<mpv_opengl_fbo>()
+            target.fbo = fbo
+            target.w = width
+            target.h = height
+            target.internal_format = internalFormat
 
-            val formatPtr = format.cstr.getPointer(this)
-            val stridePtr = alloc<size_tVar>()
-            stridePtr.value = stride.toULong()
+            val flipY = alloc<IntVar>()
+            flipY.value = 1
 
-            val params = allocArray<mpv_render_param>(5)
-            params[0].type = MPV_RENDER_PARAM_SW_SIZE
-            params[0].data = size.reinterpret()
-            params[1].type = MPV_RENDER_PARAM_SW_FORMAT
-            params[1].data = formatPtr.reinterpret()
-            params[2].type = MPV_RENDER_PARAM_SW_STRIDE
-            params[2].data = stridePtr.ptr.reinterpret()
-            params[3].type = MPV_RENDER_PARAM_SW_POINTER
-            params[3].data = buffer
-            params[4].type = MPV_RENDER_PARAM_INVALID
-            params[4].data = null
+            val params = allocArray<mpv_render_param>(3)
+            params[0].type = MPV_RENDER_PARAM_OPENGL_FBO
+            params[0].data = target.ptr.reinterpret()
+            params[1].type = MPV_RENDER_PARAM_FLIP_Y
+            params[1].data = flipY.ptr.reinterpret()
+            params[2].type = MPV_RENDER_PARAM_INVALID
+            params[2].data = null
 
             val result = mpv_render_context_render(ctx, params)
             if (result == 0) {
