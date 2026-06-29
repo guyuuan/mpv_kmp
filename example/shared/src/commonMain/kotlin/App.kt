@@ -22,7 +22,7 @@ import kotlin.time.Duration.Companion.milliseconds
 fun App() {
     MaterialTheme {
         val playerState = rememberMpvPlayer()
-        val videoUrl = "https://developer.mozilla.org/shared-assets/videos/flower.mp4"
+        val videoUrl = "https://emby.guyuuan.com:23231/emby/Items/39635/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_39635"
         fun playVideo(){
             println("start load video: $videoUrl")
             val load = playerState.load(videoUrl)

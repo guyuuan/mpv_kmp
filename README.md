@@ -35,6 +35,32 @@ in your IDE’s toolbar or run it directly from the terminal:
   .\gradlew.bat :example:desktopApp:run
   ```
 
+### Desktop native library integration for Compose Multiplatform consumers
+
+Compose Desktop consumers should apply the Gradle plugin in the desktop application module. The plugin extracts
+the current host's mpv native libraries, passes the directory to `run`, and adds the same files to Compose Desktop
+application resources for native distributions.
+
+```kotlin
+plugins {
+    id("com.guyuuan.mpv-kmp")
+}
+
+dependencies {
+    implementation("com.guyuuan.mpv_kmp:mpv:<version>")
+}
+```
+
+The JVM runtime loads native libraries in this order:
+
+1. `-Dmpv.kmp.native.dir=<dir>` provided by the plugin or by the application.
+2. Compose Desktop app resources under `mpv-kmp/<platform>`.
+3. The `mpv` JAR resources as a fallback.
+4. The system `mpv` library as a final fallback.
+
+Set `mpvKmp.desktopNativeDirectoryOverride` when an app wants to use externally built native libraries instead
+of the plugin-bundled resources.
+
 ### Build and Run iOS Application
 
 To build and run the development version of the iOS app, use the run configuration from the run widget
