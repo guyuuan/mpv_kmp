@@ -150,8 +150,8 @@ load_target () {
                 export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-isysroot $sdk"
                 export LDFLAGS="${LDFLAGS:+$LDFLAGS }-isysroot $sdk"
             fi
-            export CFLAGS="-fembed-bitcode"
-            export CXXFLAGS="-fembed-bitcode"
+            export CFLAGS="${CFLAGS:+$CFLAGS }-fembed-bitcode"
+            export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-fembed-bitcode"
         ;;
         linux)
             case "$1" in
@@ -473,7 +473,7 @@ copy_to_resources () {
             [ "$arch" = "arm64" ] || return 0
             local src="$prefix_dir/lib"
             [ -d "$src" ] || return 0
-            local dst="$PWD/../iosApp/lib"
+            local dst="$PWD/../mpv/src/iosMain/nativeLibs/iphoneos"
             mkdir -p "$dst"
             rm -f "$dst"/*.dylib
             for lib in "$src"/*.dylib; do
