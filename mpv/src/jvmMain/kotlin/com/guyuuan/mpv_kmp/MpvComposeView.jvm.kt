@@ -1,22 +1,188 @@
 package com.guyuuan.mpv_kmp
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
+import com.jogamp.opengl.GLAutoDrawable
+import com.jogamp.opengl.GLCapabilities
+import com.jogamp.opengl.GLEventListener
+import com.jogamp.opengl.GLProfile
+import com.jogamp.opengl.GLRunnable
+import com.jogamp.opengl.awt.GLCanvas
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Canvas
 import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skiko.SkiaLayer
 import org.jetbrains.skiko.SkikoRenderDelegate
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 import com.sun.jna.Pointer
 
 @Composable
 actual fun MpvComposeView(
+    modifier: Modifier,
+    state: MpvPlayer
+) {
+    when (desktopRenderMode()) {
+        DesktopRenderMode.EmbeddedGpu -> MpvEmbeddedGpuView(modifier, state)
+        DesktopRenderMode.NativeWindow -> MpvNativeWindowView(modifier, state)
+        DesktopRenderMode.Software -> MpvSoftwareView(modifier, state)
+    }
+}
+
+@Composable
+private fun MpvEmbeddedGpuView(
+    modifier: Modifier,
+    state: MpvPlayer
+) {
+    val glCanvas = remember(state.player) {
+        createMpvGlCanvas(state)
+    }
+    DisposableEffect(glCanvas) {
+        onDispose {
+            glCanvas.invoke(true, GLRunnable {
+                val player = state.player
+                if (player is EmbeddedGpuRenderSupport) {
+                    player.freeOpenGlRenderContext()
+                }
+                true
+            })
+            glCanvas.destroy()
+        }
+    }
+    SwingPanel(
+        modifier = modifier,
+        factory = { glCanvas },
+        update = {
+            it.display()
+        }
+    )
+}
+
+private fun createMpvGlCanvas(state: MpvPlayer): GLCanvas {
+    val profile = selectMpvGlProfile()
+    println("MpvComposeView: using JOGL profile ${profile.name}")
+    val capabilities = GLCapabilities(profile).apply {
+        doubleBuffered = true
+        hardwareAccelerated = true
+    }
+    return GLCanvas(capabilities).apply {
+        addGLEventListener(object : GLEventListener {
+            private var initialized = false
+            private var failed = false
+            private val renderPending = AtomicBoolean(false)
+
+            override fun init(drawable: GLAutoDrawable) {
+                val player = state.player
+                if (player !is EmbeddedGpuRenderSupport) {
+                    failed = true
+                    state.reportRenderError("player does not support embedded GPU rendering")
+                    return
+                }
+                try {
+                    if (!player.createOpenGlRenderContext()) {
+                        failed = true
+                        state.reportRenderError("failed to create OpenGL render context")
+                        return
+                    }
+                    initialized = true
+                    player.setRenderCallback {
+                        if (renderPending.compareAndSet(false, true)) {
+                            SwingUtilities.invokeLater {
+                                renderPending.set(false)
+                                if (isDisplayable) {
+                                    display()
+                                }
+                            }
+                        }
+                    }
+                    SwingUtilities.invokeLater {
+                        if (isDisplayable) {
+                            display()
+                        }
+                    }
+                } catch (e: Throwable) {
+                    failed = true
+                    state.reportRenderError("OpenGL render context initialization threw", e)
+                }
+            }
+
+            override fun display(drawable: GLAutoDrawable) {
+                if (!initialized || failed) return
+                val player = state.player
+                if (player !is EmbeddedGpuRenderSupport) return
+                val width = drawable.surfaceWidth
+                val height = drawable.surfaceHeight
+                if (width <= 0 || height <= 0) return
+                try {
+                    player.renderOpenGl(drawable.context.defaultDrawFramebuffer, width, height)
+                } catch (e: Throwable) {
+                    failed = true
+                    state.reportRenderError("OpenGL render threw", e)
+                }
+            }
+
+            override fun reshape(
+                drawable: GLAutoDrawable,
+                x: Int,
+                y: Int,
+                width: Int,
+                height: Int
+            ) {
+                display(drawable)
+            }
+
+            override fun dispose(drawable: GLAutoDrawable) {
+                val player = state.player
+                if (player is EmbeddedGpuRenderSupport) {
+                    try {
+                        player.freeOpenGlRenderContext()
+                    } catch (e: Throwable) {
+                        state.reportRenderError("OpenGL render context dispose threw", e)
+                    }
+                }
+                initialized = false
+            }
+        })
+    }
+}
+
+private fun selectMpvGlProfile(): GLProfile {
+    return try {
+        GLProfile.getMaxProgrammable(true)
+    } catch (_: Throwable) {
+        when {
+            GLProfile.isAvailable(GLProfile.GL3) -> GLProfile.get(GLProfile.GL3)
+            else -> GLProfile.get(GLProfile.GL2)
+        }
+    }
+}
+
+@Composable
+private fun MpvNativeWindowView(
+    modifier: Modifier,
+    state: MpvPlayer
+) {
+    SwingPanel(
+        modifier = modifier,
+        factory = {
+            MpvCanvas().apply {
+                setPlayer(state.player)
+            }
+        },
+        update = {
+            it.setPlayer(state.player)
+        }
+    )
+}
+
+@Composable
+private fun MpvSoftwareView(
     modifier: Modifier,
     state: MpvPlayer
 ) {

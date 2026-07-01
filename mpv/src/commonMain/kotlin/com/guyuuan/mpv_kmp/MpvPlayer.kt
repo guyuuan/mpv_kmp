@@ -147,6 +147,11 @@ class MpvPlayer(
         state = newState
     }
 
+    internal fun reportRenderError(message: String, cause: Throwable? = null) {
+        println("MpvPlayer: render failed: $message${cause?.let { ": $it" } ?: ""}")
+        updateState(MpvPlayerState.Error)
+    }
+
     fun load(url: String): Int {
         val result = player.load(url)
         if (result >= 0) {

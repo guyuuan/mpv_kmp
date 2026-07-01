@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.jogamp.opengl.GL
+import com.jogamp.opengl.GLContext
 import java.io.File
 import java.net.JarURLConnection
 import java.nio.file.Files
@@ -109,10 +111,7 @@ class mpv_opengl_init_params : Structure() {
     @JvmField
     var get_proc_address_ctx: Pointer? = null
 
-    @JvmField
-    var extra_exts: String? = null
-
-    override fun getFieldOrder() = listOf("get_proc_address", "get_proc_address_ctx", "extra_exts")
+    override fun getFieldOrder() = listOf("get_proc_address", "get_proc_address_ctx")
 }
 
 private interface MPVLibrary : Library {
@@ -136,6 +135,7 @@ private interface MPVLibrary : Library {
     fun mpv_render_context_create(res: PointerByReference, ctx: Pointer, params: Pointer): Int
     fun mpv_render_context_free(ctx: Pointer)
     fun mpv_render_context_render(ctx: Pointer, params: Pointer): Int
+    fun mpv_render_context_update(ctx: Pointer): Long
     fun mpv_render_context_set_update_callback(
         ctx: Pointer, cb: com.sun.jna.Callback?, data: Pointer?
     )
@@ -597,7 +597,44 @@ internal interface RenderContextSupport {
     fun setRenderCallback(callback: () -> Unit)
 }
 
-private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport {
+internal interface EmbeddedGpuRenderSupport {
+    fun createOpenGlRenderContext(): Boolean
+    fun renderOpenGl(fbo: Int, width: Int, height: Int)
+    fun freeOpenGlRenderContext()
+    fun setRenderCallback(callback: () -> Unit)
+}
+
+private enum class RenderContextApi {
+    Software,
+    OpenGl
+}
+
+private const val GL_RGBA8 = 0x8058
+
+internal enum class DesktopRenderMode {
+    Software,
+    EmbeddedGpu,
+    NativeWindow
+}
+
+internal fun desktopRenderMode(): DesktopRenderMode {
+    return when (System.getProperty("mpv.kmp.desktop.render")?.lowercase()) {
+        "software", "sw" -> DesktopRenderMode.Software
+        "embedded-gpu", "embedded_gpu", "gpu", "opengl", "gl" -> DesktopRenderMode.EmbeddedGpu
+        "native-window", "native_window", "wid" -> DesktopRenderMode.NativeWindow
+        else -> if (osId() == "darwin") DesktopRenderMode.EmbeddedGpu else DesktopRenderMode.Software
+    }
+}
+
+private fun desktopHwdecOption(): String {
+    return when (val value = System.getProperty("mpv.kmp.desktop.hwdec")?.trim()?.lowercase()) {
+        null, "" -> "auto-safe"
+        "false", "off" -> "no"
+        else -> value
+    }
+}
+
+private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRenderSupport {
     private var ctx: Pointer? = null
     private var listener: ((MpvEvent) -> Unit)? = null
 
@@ -606,6 +643,7 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport {
     private var scope: CoroutineScope? = null
     private var eventJob: Job? = null
     private var renderCtx: Pointer? = null
+    private var renderContextApi: RenderContextApi? = null
     private var renderCallbackAdapter: mpv_render_update_fn? = null
     private var initParams: mpv_opengl_init_params? = null
     private var getProcAddrCallback: mpv_opengl_get_proc_address_fn? = null
@@ -627,16 +665,21 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport {
                 false
             } else {
                 val c = ctx!!
-                nativeTrace("init.$rid.before.set_option.vo")
-                val voRet = MPV.lib.mpv_set_option_string(c, "vo", "libmpv")
-                nativeTrace("init.$rid.after.set_option.vo.ret=$voRet")
-                if (voRet != 0) {
-                    val err = MPV.lib.mpv_error_string(voRet) ?: "unknown"
-                    println("JvmMpvPlayer: failed to set option vo=libmpv: $voRet ($err)")
+                val hwdec = desktopHwdecOption()
+                val options = listOf(
+                    "vo" to "libmpv",
+                    "hwdec" to hwdec,
+                    "vd-lavc-dr" to "no"
+                )
+                val optionsOk = options.all { (name, value) ->
+                    setOptionBeforeInitialize(c, rid, name, value)
+                }
+                if (!optionsOk) {
                     MPV.lib.mpv_terminate_destroy(c)
                     ctx = null
                     false
                 } else {
+                    println("JvmMpvPlayer: desktop hwdec=$hwdec")
                     nativeTrace("init.$rid.before.mpv_initialize")
                     val r = MPV.lib.mpv_initialize(c)
                     nativeTrace("init.$rid.after.mpv_initialize.ret=$r")
@@ -673,6 +716,16 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport {
             println("JvmMpvPlayer: initialize on EDT failed: $e")
             return false
         }
+    }
+
+    private fun setOptionBeforeInitialize(c: Pointer, rid: String, name: String, value: String): Boolean {
+        nativeTrace("init.$rid.before.set_option.$name")
+        val ret = MPV.lib.mpv_set_option_string(c, name, value)
+        nativeTrace("init.$rid.after.set_option.$name.ret=$ret")
+        if (ret == 0) return true
+        val err = MPV.lib.mpv_error_string(ret) ?: "unknown"
+        println("JvmMpvPlayer: failed to set option $name=$value: $ret ($err)")
+        return false
     }
 
     override fun attach(view: Any) {
@@ -795,8 +848,12 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport {
         MPV.lib.mpv_wakeup(c) // Wake up wait_event
         renderCtx?.let {
             MPV.lib.mpv_render_context_set_update_callback(it, null, null)
+            if (renderContextApi == RenderContextApi.OpenGl) {
+                println("JvmMpvPlayer: OpenGL render context still active during terminate; freeing on current thread.")
+            }
             MPV.lib.mpv_render_context_free(it)
             renderCtx = null
+            renderContextApi = null
         }
         MPV.lib.mpv_terminate_destroy(c)
         ctx = null
@@ -882,10 +939,10 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport {
 
     override fun createRenderContext(): Boolean {
         val c = ctx ?: return false
-        if (renderCtx != null) return true
+        if (renderCtx != null) return renderContextApi == RenderContextApi.Software
 
         val api = com.sun.jna.Memory(8)
-        api.setString(0, "sw") // Force SW rendering on macOS/Metal environment
+        api.setString(0, "sw")
 
         val base = mpv_render_param()
         val arr = base.toArray(2) as Array<mpv_render_param>
@@ -903,6 +960,7 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport {
         val r = MPV.lib.mpv_render_context_create(out, c, arr[0].pointer)
         if (r == 0) {
             renderCtx = out.value
+            renderContextApi = RenderContextApi.Software
             println("JvmMpvPlayer: mpv_render_context_create success. ctx => $renderCtx")
             return true
         }
@@ -914,15 +972,22 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport {
 
     override fun freeRenderContext() {
         println("JvmMpvPlayer: Freeing RenderContext.")
-        renderCtx?.let { MPV.lib.mpv_render_context_free(it); renderCtx = null }
+        if (renderContextApi != RenderContextApi.Software) return
+        renderCtx?.let {
+            MPV.lib.mpv_render_context_set_update_callback(it, null, null)
+            MPV.lib.mpv_render_context_free(it)
+            renderCtx = null
+            renderContextApi = null
+        }
     }
 
     override fun render(fbo: Int, width: Int, height: Int) {
-        // No-op for SW mode
+        renderOpenGl(fbo, width, height)
     }
 
     override fun renderSw(width: Int, height: Int, stride: Int, format: String, buffer: Pointer) {
         val ctx = renderCtx ?: return
+        if (renderContextApi != RenderContextApi.Software) return
         if (width <= 0 || height <= 0 || stride <= 0) return
 
         val sizePtr = com.sun.jna.Memory(8)
@@ -974,16 +1039,148 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport {
         MPV.lib.mpv_render_context_report_swap(ctx)
     }
 
+    override fun createOpenGlRenderContext(): Boolean {
+        val c = ctx ?: return false
+        if (renderCtx != null) return renderContextApi == RenderContextApi.OpenGl
+        if (GLContext.getCurrent() == null) {
+            println("JvmMpvPlayer: OpenGL render context create requested without a current JOGL context.")
+            return false
+        }
+        clearCurrentOpenGlErrors("before createOpenGlRenderContext")
+
+        val callback = object : mpv_opengl_get_proc_address_fn {
+            override fun invoke(ctx: Pointer?, name: String): Pointer? {
+                val current = GLContext.getCurrent() ?: return null
+                val address = try {
+                    current.dynamicLibraryBundle.dynamicLookupFunction(name)
+                } catch (_: Throwable) {
+                    0L
+                }
+                return if (address == 0L) null else Pointer(address)
+            }
+        }
+        getProcAddrCallback = callback
+
+        val api = com.sun.jna.Memory("opengl".length + 1L)
+        api.setString(0, "opengl")
+
+        val params = mpv_opengl_init_params()
+        params.get_proc_address = callback
+        params.get_proc_address_ctx = null
+        params.write()
+        initParams = params
+
+        val base = mpv_render_param()
+        val arr = base.toArray(3) as Array<mpv_render_param>
+        arr[0].type = 1 // MPV_RENDER_PARAM_API_TYPE
+        arr[0].data = api
+        arr[0].write()
+        arr[1].type = 2 // MPV_RENDER_PARAM_OPENGL_INIT_PARAMS
+        arr[1].data = params.pointer
+        arr[1].write()
+        arr[2].type = 0
+        arr[2].data = null
+        arr[2].write()
+
+        val out = PointerByReference()
+        println("JvmMpvPlayer: Calling mpv_render_context_create with opengl...")
+        val r = MPV.lib.mpv_render_context_create(out, c, arr[0].pointer)
+        if (r == 0) {
+            clearCurrentOpenGlErrors("after createOpenGlRenderContext")
+            renderCtx = out.value
+            renderContextApi = RenderContextApi.OpenGl
+            println("JvmMpvPlayer: OpenGL render context created successfully. ctx => $renderCtx")
+            return true
+        }
+        val err = MPV.lib.mpv_error_string(r) ?: "unknown"
+        val vo = getProperty("vo")
+        println("JvmMpvPlayer: OpenGL mpv_render_context_create failed: $r ($err), vo=$vo")
+        getProcAddrCallback = null
+        initParams = null
+        return false
+    }
+
+    override fun renderOpenGl(fbo: Int, width: Int, height: Int) {
+        val ctx = renderCtx ?: return
+        if (renderContextApi != RenderContextApi.OpenGl) return
+        if (width <= 0 || height <= 0) return
+        val current = GLContext.getCurrent()
+        if (current == null) {
+            println("JvmMpvPlayer: OpenGL render requested without a current JOGL context.")
+            return
+        }
+
+        MPV.lib.mpv_render_context_update(ctx)
+        val gl = current.gl
+        clearCurrentOpenGlErrors("before renderOpenGl")
+        gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, fbo)
+
+        val fboStruct = mpv_opengl_fbo()
+        fboStruct.fbo = fbo
+        fboStruct.w = width
+        fboStruct.h = height
+        fboStruct.internal_format = GL_RGBA8
+        fboStruct.write()
+
+        val flip = com.sun.jna.Memory(4)
+        flip.setInt(0, 1)
+
+        val base = mpv_render_param()
+        val arr = base.toArray(3) as Array<mpv_render_param>
+        arr[0].type = 3 // MPV_RENDER_PARAM_OPENGL_FBO
+        arr[0].data = fboStruct.pointer
+        arr[0].write()
+        arr[1].type = 4 // MPV_RENDER_PARAM_FLIP_Y
+        arr[1].data = flip
+        arr[1].write()
+        arr[2].type = 0
+        arr[2].data = null
+        arr[2].write()
+
+        val err = MPV.lib.mpv_render_context_render(ctx, arr[0].pointer)
+        if (err != 0) {
+            println("JvmMpvPlayer: OpenGL mpv_render_context_render failed: $err")
+            return
+        }
+        clearCurrentOpenGlErrors("after renderOpenGl")
+        MPV.lib.mpv_render_context_report_swap(ctx)
+    }
+
+    override fun freeOpenGlRenderContext() {
+        if (renderContextApi != RenderContextApi.OpenGl) return
+        val ctx = renderCtx ?: return
+        if (GLContext.getCurrent() == null) {
+            println("JvmMpvPlayer: OpenGL render context free requested without a current JOGL context.")
+            return
+        }
+        println("JvmMpvPlayer: Freeing OpenGL RenderContext.")
+        MPV.lib.mpv_render_context_set_update_callback(ctx, null, null)
+        MPV.lib.mpv_render_context_free(ctx)
+        renderCtx = null
+        renderContextApi = null
+        renderCallbackAdapter = null
+        getProcAddrCallback = null
+        initParams = null
+    }
+
     override fun setRenderCallback(callback: () -> Unit) {
         val ctx = renderCtx ?: return
         val adapter = object : mpv_render_update_fn {
             override fun invoke(ctx: Pointer?) {
-                if (!running) return
                 callback()
             }
         }
         this.renderCallbackAdapter = adapter
         MPV.lib.mpv_render_context_set_update_callback(ctx, adapter, null)
+    }
+
+    private fun clearCurrentOpenGlErrors(stage: String) {
+        val gl = GLContext.getCurrent()?.gl ?: return
+        var error = gl.glGetError()
+        while (error != GL.GL_NO_ERROR) {
+            println("JvmMpvPlayer: cleared OpenGL error before mpv handoff at $stage: 0x${error.toString(16)}")
+            error = gl.glGetError()
+        }
     }
 }
 

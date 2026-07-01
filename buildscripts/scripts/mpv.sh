@@ -91,7 +91,7 @@ ios_audio_opts=
 ios_macos_opts=
 [ "$platform" = "ios" ] && ios_macos_opts="-Dmacos-10-15-4-features=disabled -Dmacos-11-features=disabled -Dmacos-11-3-features=disabled -Dmacos-12-features=disabled"
 macos_jvm_opts="-Dcoreaudio=disabled -Davfoundation=disabled -Djack=disabled -Dcocoa=disabled -Dswift-build=disabled"
-[ "$platform" = "macos" ] && macos_jvm_opts="-Dcoreaudio=enabled -Davfoundation=disabled -Djack=disabled -Dcocoa=disabled -Dswift-build=disabled"
+[ "$platform" = "macos" ] && macos_jvm_opts="-Dcoreaudio=enabled -Davfoundation=disabled -Djack=disabled -Dcocoa=enabled -Dswift-build=enabled -Dvideotoolbox-gl=enabled"
 android_link_opts=
 [ "$platform" = "android" ] && android_link_opts="-Dc_link_args=-lc++_shared"
 meson_setup_args=("$build")
@@ -108,7 +108,7 @@ meson setup "${meson_setup_args[@]}" --cross-file "$prefix_dir"/crossfile.txt \
     -Dx11=disabled -Dx11-clipboard=disabled \
     -Dmanpage-build=disabled \
     -Dmacos-cocoa-cb=disabled -Dmacos-media-player=disabled -Dmacos-touchbar=disabled \
-    -Dgl-cocoa=disabled -Dplain-gl=enabled \
+    -Dgl-cocoa=enabled -Dplain-gl=enabled \
     -Dc_args=-DNO_BUILD_TIMESTAMPS \
     $android_link_opts \
     $( [ "$cross_system" = "windows" ] && echo "-Dzlib=disabled" )

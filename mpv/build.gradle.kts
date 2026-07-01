@@ -87,6 +87,8 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(libs.jna)
+            implementation(libs.jogl.all.main)
+            implementation(libs.gluegen.rt.main)
         }
     }
 }

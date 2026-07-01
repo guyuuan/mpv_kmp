@@ -146,6 +146,7 @@ class MpvKmpPlugin : Plugin<Project> {
         project.tasks.withType(JavaExec::class.java).configureEach { task ->
             if (task.name !in DesktopNativeLibraries.composeRunTaskNames) return@configureEach
             task.dependsOn(extractDesktopNativeLibs)
+            task.jvmArgs(*DesktopNativeLibraries.joglAwtJvmArgs.toTypedArray())
             task.doFirst {
                 if (extension.desktopNativeIntegration.get()) {
                     task.systemProperty(
@@ -455,6 +456,11 @@ private object DesktopNativeLibraries {
         "hotRunAsync",
         "hotDev",
         "hotDevAsync"
+    )
+
+    val joglAwtJvmArgs = listOf(
+        "--add-exports=java.desktop/sun.awt=ALL-UNNAMED",
+        "--add-opens=java.desktop/sun.awt=ALL-UNNAMED"
     )
 
     fun currentPlatform(): String {

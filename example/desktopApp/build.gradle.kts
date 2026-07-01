@@ -15,6 +15,10 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.guyuuan.mpv_kmp.example.MainKt"
+        jvmArgs(
+            "--add-exports=java.desktop/sun.awt=ALL-UNNAMED",
+            "--add-opens=java.desktop/sun.awt=ALL-UNNAMED"
+        )
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "mpv-kmp-example"

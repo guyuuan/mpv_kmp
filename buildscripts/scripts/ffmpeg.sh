@@ -96,6 +96,7 @@ case "$platform" in
             --disable-{stripping,doc}
             --disable-filter=gfxcapture
         )
+        [ "$platform" = "macos" ] && args+=(--enable-videotoolbox)
         [ "$platform" = "ios" ] && args+=(--install-name-dir=@rpath)
     ;;
 esac
