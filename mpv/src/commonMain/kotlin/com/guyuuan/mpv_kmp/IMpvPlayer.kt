@@ -11,6 +11,12 @@ enum class MpvEventType {
     ChapterChange, QueueOverflow, Hook
 }
 data class MpvEvent(val type: MpvEventType, val name: String? = null, val value: String? = null, val error: Int = 0)
+data class MpvPlaylistItem(
+    val index: Int,
+    val filename: String,
+    val title: String? = null,
+    val current: Boolean = false
+)
 
 interface IMpvPlayer {
     fun initialize(): Boolean
@@ -20,6 +26,8 @@ interface IMpvPlayer {
     fun load(uri: String): Int
     fun loadFile(path: String): Int = load(mpvFileUri(path))
     fun addToPlaylist(uri: String): Int
+    fun getPlaylist(): List<MpvPlaylistItem>
+    fun removeFromPlaylist(index: Int): Int
     fun playlistNext(): Int
     fun playlistPrev(): Int
     fun playlistClear(): Int

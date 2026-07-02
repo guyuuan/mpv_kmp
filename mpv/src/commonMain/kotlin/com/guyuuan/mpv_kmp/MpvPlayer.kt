@@ -166,6 +166,16 @@ class MpvPlayer(
         return result
     }
 
+    fun getPlaylist(): List<MpvPlaylistItem> = player.getPlaylist()
+
+    fun removeFromPlaylist(index: Int): Int {
+        val result = player.removeFromPlaylist(index)
+        if (result < 0) {
+            updateState(MpvPlayerState.Error)
+        }
+        return result
+    }
+
     fun play(): Int {
         val result = player.play()
         if (result >= 0) {
