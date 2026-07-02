@@ -766,6 +766,7 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRender
     override fun playlistNext(): Int = commandString("playlist-next")
     override fun playlistPrev(): Int = commandString("playlist-prev")
     override fun playlistClear(): Int = commandString("playlist-clear")
+    override fun seekTo(position: Double): Int = command("no-osd", "seek", position.toString(), "absolute")
     override fun setEventListener(listener: (MpvEvent) -> Unit) {
         this.listener = listener
         startEventLoop()

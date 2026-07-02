@@ -209,8 +209,12 @@ class MpvPlayer(
         return result
     }
     
-    fun seek(position: Double) {
-        player.commandString("seek $position absolute")
+    fun seek(position: Double): Int {
+        val result = player.seekTo(position)
+        if (result < 0) {
+            updateState(MpvPlayerState.Error)
+        }
+        return result
     }
 
     fun dispose() {
