@@ -23,6 +23,7 @@ interface IMpvPlayer {
     fun playlistNext(): Int
     fun playlistPrev(): Int
     fun playlistClear(): Int
+    fun seekTo(position: Double): Int
     fun setEventListener(listener: (MpvEvent) -> Unit)
     fun setCoroutineScope(scope: CoroutineScope)
     fun observeProperty(name: String)

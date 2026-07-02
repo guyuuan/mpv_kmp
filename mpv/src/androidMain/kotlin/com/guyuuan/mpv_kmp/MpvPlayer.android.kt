@@ -27,6 +27,7 @@ private class AndroidMpvPlayer : IMpvPlayer {
     override fun playlistNext(): Int = commandString("playlist-next")
     override fun playlistPrev(): Int = commandString("playlist-prev")
     override fun playlistClear(): Int = commandString("playlist-clear")
+    override fun seekTo(position: Double): Int = commandString("no-osd seek $position absolute")
     override fun setEventListener(listener: (MpvEvent) -> Unit) {
         this.listener = listener
         startEventLoop()

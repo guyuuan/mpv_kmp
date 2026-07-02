@@ -67,6 +67,7 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         if (!setOptionBeforeInitialize(h, "audio", "no")) return false
         if (!setOptionBeforeInitialize(h, "ao", "null")) return false
         setOptionalOptionBeforeInitialize(h, "profile", "sw-fast")
+        setOptionalOptionBeforeInitialize(h, "hwdec", "videotoolbox-copy")
         setOptionalOptionBeforeInitialize(h, "sws-fast", "yes")
         setOptionalOptionBeforeInitialize(h, "zimg-fast", "yes")
         setOptionalOptionBeforeInitialize(h, "vd-lavc-dr", "no")
@@ -115,6 +116,7 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
     override fun playlistNext(): Int = commandString("playlist-next")
     override fun playlistPrev(): Int = commandString("playlist-prev")
     override fun playlistClear(): Int = commandString("playlist-clear")
+    override fun seekTo(position: Double): Int = commandString("no-osd seek $position absolute")
     override fun setEventListener(listener: (MpvEvent) -> Unit) {
         this.listener = listener
         startEventLoop()
