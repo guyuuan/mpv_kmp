@@ -763,6 +763,8 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRender
         return command("loadfile", uri, "append")
     }
 
+    override fun getPlaylist(): List<MpvPlaylistItem> = readPlaylist()
+    override fun removeFromPlaylist(index: Int): Int = command("playlist-remove", index.toString())
     override fun playlistNext(): Int = commandString("playlist-next")
     override fun playlistPrev(): Int = commandString("playlist-prev")
     override fun playlistClear(): Int = commandString("playlist-clear")
@@ -840,6 +842,18 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRender
         val s = p.getString(0)
         MPV.lib.mpv_free(p)
         return s
+    }
+    private fun readPlaylist(): List<MpvPlaylistItem> {
+        val count = getProperty("playlist/count")?.toIntOrNull() ?: return emptyList()
+        return (0 until count).mapNotNull { index ->
+            val filename = getProperty("playlist/$index/filename") ?: return@mapNotNull null
+            MpvPlaylistItem(
+                index = index,
+                filename = filename,
+                title = getProperty("playlist/$index/title"),
+                current = getProperty("playlist/$index/current") == "yes"
+            )
+        }
     }
 
     override fun terminate() {
