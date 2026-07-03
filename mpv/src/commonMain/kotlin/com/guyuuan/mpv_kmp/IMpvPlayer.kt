@@ -26,6 +26,24 @@ data class MpvPlaylistItem(
     val current: Boolean = false
 )
 
+data class MpvSubtitleTrack(
+    val index: Int,
+    val id: Int,
+    val title: String? = null,
+    val language: String? = null,
+    val selected: Boolean = false,
+    val external: Boolean = false,
+    val externalFilename: String? = null,
+    val codec: String? = null,
+    val defaultTrack: Boolean = false,
+    val forced: Boolean = false
+)
+
+object MpvSubtitleProperties {
+    const val SID = "sid"
+    const val TRACK_LIST_COUNT = "track-list/count"
+}
+
 object MpvDecoderProperties {
     const val CURRENT_VIDEO_CODEC = "current-tracks/video/codec"
     const val CURRENT_VIDEO_CODEC_DESCRIPTION = "current-tracks/video/codec-desc"
@@ -92,6 +110,30 @@ interface IMpvPlayer {
     fun loadFile(path: String): Int = load(mpvFileUri(path))
     fun addToPlaylist(uri: String): Int
     fun getPlaylist(): List<MpvPlaylistItem>
+    fun getCurrentSubtitle(): MpvSubtitleTrack? = getSubtitleList().firstOrNull { it.selected }
+    fun getSubtitleList(): List<MpvSubtitleTrack> {
+        val count = getProperty(MpvSubtitleProperties.TRACK_LIST_COUNT)?.toIntOrNull() ?: return emptyList()
+        return (0 until count).mapNotNull { index ->
+            if (getProperty("track-list/$index/type") != "sub") return@mapNotNull null
+            val id = getProperty("track-list/$index/id")?.toIntOrNull() ?: return@mapNotNull null
+            MpvSubtitleTrack(
+                index = index,
+                id = id,
+                title = getProperty("track-list/$index/title"),
+                language = getProperty("track-list/$index/lang"),
+                selected = getProperty("track-list/$index/selected").toMpvBoolean(),
+                external = getProperty("track-list/$index/external").toMpvBoolean(),
+                externalFilename = getProperty("track-list/$index/external-filename"),
+                codec = getProperty("track-list/$index/codec"),
+                defaultTrack = getProperty("track-list/$index/default").toMpvBoolean(),
+                forced = getProperty("track-list/$index/forced").toMpvBoolean()
+            )
+        }
+    }
+    fun setSubtitle(id: Int?): Int = setProperty(MpvSubtitleProperties.SID, id?.toString() ?: "no")
+    fun setSubtitle(subtitle: MpvSubtitleTrack): Int = setSubtitle(subtitle.id)
+    fun addExternalSubtitle(uri: String): Int = commandString("sub-add ${mpvCommandArgument(uri)} select")
+    fun addExternalSubtitleFile(path: String): Int = addExternalSubtitle(mpvFileUri(path))
     fun removeFromPlaylist(index: Int): Int
     fun playlistNext(): Int
     fun playlistPrev(): Int
@@ -159,4 +201,16 @@ expect fun createMpvPlayer(): IMpvPlayer
 
 fun mpvFileUri(path: String): String {
     return if (path.startsWith("file://")) path else "file://$path"
+}
+
+private fun String?.toMpvBoolean(): Boolean = this == "yes" || this == "true"
+
+internal fun mpvCommandArgument(value: String): String {
+    val escaped = buildString {
+        value.forEach { char ->
+            if (char == '\\' || char == '"') append('\\')
+            append(char)
+        }
+    }
+    return "\"$escaped\""
 }

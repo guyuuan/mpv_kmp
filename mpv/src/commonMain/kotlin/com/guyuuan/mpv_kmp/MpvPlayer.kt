@@ -1,6 +1,13 @@
 package com.guyuuan.mpv_kmp
 
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.SharedFlow
@@ -13,6 +20,9 @@ import kotlinx.coroutines.launch
 enum class MpvPlayerState {
     Idle, Loading, Playing, Paused, Stopped, Ended, Error, Disposed
 }
+
+val MpvPlayerState.isIdle: Boolean
+    get() = this == MpvPlayerState.Idle || this == MpvPlayerState.Stopped || this == MpvPlayerState.Ended
 
 @Composable
 fun rememberMpvPlayer(
@@ -60,13 +70,12 @@ class MpvPlayer(
                 trySend(info)
             }
         }
-        player.addEventListener (listener)
+        player.addEventListener(listener)
+        trySend(player.getDecoderInfo())
         awaitClose {
             player.removeEventListener(listener)
             MpvDecoderProperties.ALL.forEach { player.removePropertyObservation(it) }
         }
-    }.onStart {
-        emit(player.getDecoderInfo())
     }.shareIn(scope, started = SharingStarted.WhileSubscribed())
 
     private var hasActiveFile = false
@@ -192,6 +201,36 @@ class MpvPlayer(
     }
 
     fun getPlaylist(): List<MpvPlaylistItem> = player.getPlaylist()
+
+    fun getCurrentSubtitle(): MpvSubtitleTrack? = player.getCurrentSubtitle()
+
+    fun getSubtitleList(): List<MpvSubtitleTrack> = player.getSubtitleList()
+
+    fun setSubtitle(id: Int?): Int {
+        val result = player.setSubtitle(id)
+        if (result < 0) {
+            updateState(MpvPlayerState.Error)
+        }
+        return result
+    }
+
+    fun setSubtitle(subtitle: MpvSubtitleTrack): Int = setSubtitle(subtitle.id)
+
+    fun addExternalSubtitle(uri: String): Int {
+        val result = player.addExternalSubtitle(uri)
+        if (result < 0) {
+            updateState(MpvPlayerState.Error)
+        }
+        return result
+    }
+
+    fun addExternalSubtitleFile(path: String): Int {
+        val result = player.addExternalSubtitleFile(path)
+        if (result < 0) {
+            updateState(MpvPlayerState.Error)
+        }
+        return result
+    }
 
     fun removeFromPlaylist(index: Int): Int {
         val result = player.removeFromPlaylist(index)

@@ -762,6 +762,10 @@ private class JvmMpvPlayer : AbsMpvPlayer(), RenderContextSupport, EmbeddedGpuRe
         return command("loadfile", uri, "append")
     }
 
+    override fun addExternalSubtitle(uri: String): Int {
+        return command("sub-add", uri, "select")
+    }
+
     override fun getPlaylist(): List<MpvPlaylistItem> = readPlaylist()
     override fun removeFromPlaylist(index: Int): Int = command("playlist-remove", index.toString())
     override fun playlistNext(): Int = commandString("playlist-next")
