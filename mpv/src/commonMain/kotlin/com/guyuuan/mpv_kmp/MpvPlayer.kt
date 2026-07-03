@@ -2,17 +2,16 @@ package com.guyuuan.mpv_kmp
 
 import androidx.compose.runtime.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 
 enum class MpvPlayerState {
-    Idle,
-    Loading,
-    Playing,
-    Paused,
-    Stopped,
-    Ended,
-    Error,
-    Disposed
+    Idle, Loading, Playing, Paused, Stopped, Ended, Error, Disposed
 }
 
 @Composable
@@ -33,8 +32,7 @@ fun rememberMpvPlayer(
 
 @Stable
 class MpvPlayer(
-    val player: IMpvPlayer,
-    private val scope: CoroutineScope
+    val player: IMpvPlayer, private val scope: CoroutineScope
 ) {
     var state by mutableStateOf(MpvPlayerState.Idle)
         private set
@@ -54,6 +52,23 @@ class MpvPlayer(
     var duration by mutableStateOf(0.0)
         private set
 
+    val decoderInfoFlow: SharedFlow<MpvDecoderInfo> = callbackFlow {
+        MpvDecoderProperties.ALL.forEach { player.observeProperty(it) }
+        val listener: MpvEventListener = { event ->
+            if (event.name in MpvDecoderProperties.ALL) {
+                val info = player.getDecoderInfo()
+                trySend(info)
+            }
+        }
+        player.addEventListener (listener)
+        awaitClose {
+            player.removeEventListener(listener)
+            MpvDecoderProperties.ALL.forEach { player.removePropertyObservation(it) }
+        }
+    }.onStart {
+        emit(player.getDecoderInfo())
+    }.shareIn(scope, started = SharingStarted.WhileSubscribed())
+
     private var hasActiveFile = false
     private var pauseProperty = false
     private var stopRequested = false
@@ -62,7 +77,7 @@ class MpvPlayer(
         if (player.initialize()) {
             updateState(MpvPlayerState.Idle)
             player.setCoroutineScope(scope)
-            player.setEventListener { event ->
+            player.addEventListener { event ->
                 scope.launch {
                     handleEvent(event)
                 }
@@ -92,46 +107,56 @@ class MpvPlayer(
                     "duration" -> duration = event.value?.toDoubleOrNull() ?: 0.0
                 }
             }
+
             MpvEventType.Pause -> {
                 pauseProperty = true
                 if (hasActiveFile) {
                     updateState(MpvPlayerState.Paused)
                 }
             }
+
             MpvEventType.Unpause -> {
                 pauseProperty = false
                 if (hasActiveFile) {
                     updateState(MpvPlayerState.Playing)
                 }
             }
+
             MpvEventType.StartFile -> {
                 hasActiveFile = false
                 stopRequested = false
                 updateState(MpvPlayerState.Loading)
             }
+
             MpvEventType.FileLoaded -> {
                 hasActiveFile = true
                 updateState(if (pauseProperty) MpvPlayerState.Paused else MpvPlayerState.Playing)
             }
+
             MpvEventType.PlaybackRestart -> {
                 hasActiveFile = true
                 updateState(if (pauseProperty) MpvPlayerState.Paused else MpvPlayerState.Playing)
             }
+
             MpvEventType.EndFile -> {
                 hasActiveFile = false
                 updateState(if (stopRequested) MpvPlayerState.Stopped else MpvPlayerState.Ended)
                 stopRequested = false
             }
+
+
             MpvEventType.Idle -> {
                 if (!hasActiveFile && state == MpvPlayerState.Loading) {
                     updateState(MpvPlayerState.Idle)
                 }
             }
+
             MpvEventType.Shutdown -> {
                 hasActiveFile = false
                 stopRequested = false
                 updateState(MpvPlayerState.Disposed)
             }
+
             else -> {}
         }
     }
@@ -201,7 +226,7 @@ class MpvPlayer(
         }
         return result
     }
-    
+
     fun togglePause() {
         if (isPaused) play() else pause()
     }
@@ -218,7 +243,7 @@ class MpvPlayer(
         }
         return result
     }
-    
+
     fun seek(position: Double): Int {
         val result = player.seekTo(position)
         if (result < 0) {
@@ -226,6 +251,12 @@ class MpvPlayer(
         }
         return result
     }
+
+    fun getVideoDecoderInfo(): MpvVideoDecoderInfo = player.getVideoDecoderInfo()
+
+    fun getAudioDecoderInfo(): MpvAudioDecoderInfo = player.getAudioDecoderInfo()
+
+    fun getDecoderInfo(): MpvDecoderInfo = player.getDecoderInfo()
 
     fun dispose() {
         hasActiveFile = false

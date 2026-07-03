@@ -5,12 +5,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
-
-private class AndroidMpvPlayer : IMpvPlayer {
-    private var listener: ((MpvEvent) -> Unit)? = null
-    @Volatile private var running = false
+private class AndroidMpvPlayer : AbsMpvPlayer() {
     private var scope: CoroutineScope? = null
     private var eventJob: Job? = null
+    private val observedProperties = mutableMapOf<String, Long>()
+    private var nextPropertyObserverId = 1L
 
     override fun initialize(): Boolean = MpvNative.mpvInit()
     override fun attach(view: Any) {
@@ -30,21 +29,42 @@ private class AndroidMpvPlayer : IMpvPlayer {
     override fun playlistPrev(): Int = commandString("playlist-prev")
     override fun playlistClear(): Int = commandString("playlist-clear")
     override fun seekTo(position: Double): Int = commandString("no-osd seek $position absolute")
-    override fun setEventListener(listener: (MpvEvent) -> Unit) {
-        this.listener = listener
-        startEventLoop()
-    }
+
     override fun setCoroutineScope(scope: CoroutineScope) {
         this.scope = scope
         startEventLoop()
     }
     override fun observeProperty(name: String) {
+        if (observedProperties.containsKey(name)) return
+        val observerId = allocatePropertyObserverId()
+        observedProperties[name] = observerId
         // format 1 = MPV_FORMAT_STRING
-        MpvNative.mpvObserveProperty(name, 1)
+        val result = MpvNative.mpvObserveProperty(name, observerId, 1)
+        if (result < 0) {
+            println("AndroidMpvPlayer: observeProperty failed: $result, name=$name")
+            if (observedProperties[name] == observerId) {
+                observedProperties.remove(name)
+            }
+            return
+        }
         startEventLoop()
     }
     override fun removePropertyObservation(name: String) {
-        // See JVM implementation note
+        val observerId = observedProperties[name] ?: return
+        val result = MpvNative.mpvUnobserveProperty(observerId)
+        if (result < 0) {
+            println("AndroidMpvPlayer: removePropertyObservation failed: $result, name=$name")
+            return
+        }
+        observedProperties.remove(name)
+    }
+    private fun allocatePropertyObserverId(): Long {
+        val observerId = nextPropertyObserverId
+        nextPropertyObserverId += 1
+        if (nextPropertyObserverId == 0L) {
+            nextPropertyObserverId = 1L
+        }
+        return observerId
     }
     override fun play(): Int = setProperty("pause", "no")
     override fun pause(): Int = setProperty("pause", "yes")
@@ -65,11 +85,13 @@ private class AndroidMpvPlayer : IMpvPlayer {
     }
     override fun terminate() {
         running = false
+        observedProperties.clear()
+        nextPropertyObserverId = 1L
         MpvNative.mpvTerminate() // calls wakeup
         eventJob?.cancel()
         eventJob = null
     }
-    private fun startEventLoop() {
+    override fun startEventLoop() {
         if (running) return
         if (scope == null) return
         running = true
@@ -86,7 +108,14 @@ private class AndroidMpvPlayer : IMpvPlayer {
 
     private fun handleEvent(event: MpvEventDTO) {
         val type = mapEventType(event.eventId)
-        listener?.invoke(MpvEvent(type, event.propName, event.propValue, event.error))
+        if (type == MpvEventType.PropertyChange &&
+            event.replyUserdata != 0L &&
+            !observedProperties.containsValue(event.replyUserdata)
+        ) {
+            return
+        }
+
+        listeners.forEach { it.invoke(MpvEvent(type, event.propName, event.propValue, event.error)) }
     }
 
     private fun mapEventType(id: Int): MpvEventType {
