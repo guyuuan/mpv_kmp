@@ -668,7 +668,8 @@ private class JvmMpvPlayer : AbsMpvPlayer(), RenderContextSupport, EmbeddedGpuRe
                 val options = listOf(
                     "vo" to "libmpv",
                     "hwdec" to hwdec,
-                    "vd-lavc-dr" to "no"
+                    "vd-lavc-dr" to "no",
+                    "sub-margin-y" to "80"
                 )
                 val optionsOk = options.all { (name, value) ->
                     setOptionBeforeInitialize(c, rid, name, value)

@@ -204,6 +204,7 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvInit(JNIEnv*, jclass) {
         !set_option("gpu-api", "opengl") ||
         !set_option("hwdec", "mediacodec-copy") ||
         !set_option("vd-lavc-dr", "no") ||
+        !set_option("sub-margin-y", "80") ||
         !set_option("ao", "audiotrack")) {
         p_mpv_terminate_destroy(mpv_handle_ptr);
         mpv_handle_ptr = nullptr;

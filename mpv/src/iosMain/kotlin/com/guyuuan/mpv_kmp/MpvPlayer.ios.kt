@@ -72,6 +72,7 @@ private class IosMpvPlayer : AbsMpvPlayer(), IosRenderContextSupport {
         setOptionalOptionBeforeInitialize(h, "sws-fast", "yes")
         setOptionalOptionBeforeInitialize(h, "zimg-fast", "yes")
         setOptionalOptionBeforeInitialize(h, "vd-lavc-dr", "no")
+        setOptionalOptionBeforeInitialize(h, "sub-margin-y", "80")
         val r = mpv_initialize(h)
         if (r != 0) {
             println("IosMpvPlayer: mpv_initialize failed: $r (${mpvError(r)})")
