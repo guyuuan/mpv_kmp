@@ -12,27 +12,70 @@ class MpvSurfaceView @JvmOverloads constructor(
 ) : SurfaceView(context, attrs, defStyleAttr), SurfaceHolder.Callback {
 
     private var player: IMpvPlayer? = null
+    private var attachedSurface: android.view.Surface? = null
+    private var attachedWidth: Int = 0
+    private var attachedHeight: Int = 0
 
     init {
         holder.addCallback(this)
     }
 
     fun setPlayer(player: IMpvPlayer) {
-        this.player = player
-        if (holder.surface.isValid) {
-            player.attach(holder.surface)
+        if (this.player != null && this.player !== player) {
+            this.player?.detach()
+            clearAttachedSurface()
         }
+        this.player = player
+        attachSurfaceIfReady(holder)
+    }
+
+    fun release() {
+        player?.detach()
+        player = null
+        clearAttachedSurface()
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        player?.attach(holder.surface)
+        attachSurfaceIfReady(holder)
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        // Handle resize if necessary, MPV usually handles it via surface
+        attachSurfaceIfReady(holder, width, height)
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        player?.detach()
+        clearAttachedSurface()
+        // SurfaceView destroys its surface when the app goes to the background.
+        // Clearing mpv's wid here makes the Android VO reinitialize with no
+        // surface and fail with "Missing surface pointer".
+    }
+
+    private fun attachSurfaceIfReady(
+        holder: SurfaceHolder,
+        width: Int = holder.surfaceFrame.width(),
+        height: Int = holder.surfaceFrame.height()
+    ) {
+        val currentPlayer = player ?: return
+        val surface = holder.surface
+        if (!surface.isValid || width <= 0 || height <= 0) return
+        if (attachedSurface === surface && attachedWidth == width && attachedHeight == height) {
+            return
+        }
+
+        currentPlayer.setProperty(ANDROID_SURFACE_SIZE_PROPERTY, "${width}x$height")
+        currentPlayer.attach(surface)
+        attachedSurface = surface
+        attachedWidth = width
+        attachedHeight = height
+    }
+
+    private fun clearAttachedSurface() {
+        attachedSurface = null
+        attachedWidth = 0
+        attachedHeight = 0
+    }
+
+    private companion object {
+        const val ANDROID_SURFACE_SIZE_PROPERTY = "android-surface-size"
     }
 }
