@@ -3,9 +3,12 @@ package com.guyuuan.mpv_kmp.example
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -19,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.guyuuan.mpv_kmp.MpvComposeView
 import com.guyuuan.mpv_kmp.rememberMpvPlayer
 import kotlinx.coroutines.delay
@@ -37,11 +41,12 @@ fun App() {
             val play = playerState.play()
             println("play result: $play")
         }
+        val decoderInfo by playerState.decoderInfoFlow.collectAsStateWithLifecycle(initialValue = null)
         val progress by
             derivedStateOf{ (playerState.timePos / (playerState.duration.takeIf { it > 0 } ?: 1.0)).toFloat() }
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().aspectRatio(4f/3f),
             ) {
                 MpvComposeView(
                     modifier = Modifier.fillMaxSize(),
@@ -52,8 +57,10 @@ fun App() {
                 }, modifier = Modifier.align(alignment = Alignment.BottomCenter).padding(horizontal = 24.dp).fillMaxWidth())
 
             }
-            
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(16.dp).weight(1f).verticalScroll(state = rememberScrollState())) {
+                Text("Decoder Info:")
+                Text("Video: ${decoderInfo?.video}")
+                Text("Audio: ${decoderInfo?.audio}")
                 Text(text = "Status: ${playerState.state.name}")
                 Text(text = "Time: ${playerState.timePos} / ${playerState.duration}")
                 
