@@ -17,8 +17,10 @@ actual fun MpvComposeView(
             }
         },
         update = { view ->
-            // MpvSurfaceView handles attach internally when surface is created
-            // If state.player changes, we might need to update, but usually MpvPlayer holds stable player
+            view.setPlayer(state.player)
+        },
+        onRelease = { view ->
+            view.release()
         }
     )
 }
