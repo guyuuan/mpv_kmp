@@ -101,6 +101,93 @@ class SharedCommonTest {
     }
 
     @Test
+    fun getSubtitleListMapsMpvTrackList() {
+        val player = FakeMpvPlayer(
+            mapOf(
+                "track-list/count" to "4",
+                "track-list/0/type" to "video",
+                "track-list/0/id" to "1",
+                "track-list/1/type" to "sub",
+                "track-list/1/id" to "2",
+                "track-list/1/title" to "English SDH",
+                "track-list/1/lang" to "eng",
+                "track-list/1/selected" to "yes",
+                "track-list/1/external" to "yes",
+                "track-list/1/external-filename" to "file:///tmp/movie.eng.srt",
+                "track-list/1/codec" to "subrip",
+                "track-list/1/default" to "yes",
+                "track-list/1/forced" to "no",
+                "track-list/2/type" to "audio",
+                "track-list/2/id" to "3",
+                "track-list/3/type" to "sub",
+                "track-list/3/id" to "4",
+                "track-list/3/title" to "Chinese",
+                "track-list/3/lang" to "chi",
+                "track-list/3/selected" to "no",
+                "track-list/3/external" to "no",
+                "track-list/3/codec" to "ass",
+                "track-list/3/default" to "no",
+                "track-list/3/forced" to "true"
+            )
+        )
+
+        val subtitles = player.getSubtitleList()
+
+        assertEquals(
+            listOf(
+                MpvSubtitleTrack(
+                    index = 1,
+                    id = 2,
+                    title = "English SDH",
+                    language = "eng",
+                    selected = true,
+                    external = true,
+                    externalFilename = "file:///tmp/movie.eng.srt",
+                    codec = "subrip",
+                    defaultTrack = true,
+                    forced = false
+                ),
+                MpvSubtitleTrack(
+                    index = 3,
+                    id = 4,
+                    title = "Chinese",
+                    language = "chi",
+                    selected = false,
+                    external = false,
+                    codec = "ass",
+                    defaultTrack = false,
+                    forced = true
+                )
+            ),
+            subtitles
+        )
+        assertEquals(subtitles.first(), player.getCurrentSubtitle())
+    }
+
+    @Test
+    fun setSubtitleUpdatesMpvSidProperty() {
+        val player = FakeMpvPlayer(emptyMap())
+
+        assertEquals(0, player.setSubtitle(4))
+        assertEquals("4", player.setProperties[MpvSubtitleProperties.SID])
+
+        assertEquals(0, player.setSubtitle(null))
+        assertEquals("no", player.setProperties[MpvSubtitleProperties.SID])
+    }
+
+    @Test
+    fun addExternalSubtitleQuotesMpvCommandArgument() {
+        val player = FakeMpvPlayer(emptyMap())
+
+        assertEquals(0, player.addExternalSubtitle("file:///tmp/My \"Sub\".srt"))
+
+        assertEquals(
+            "sub-add \"file:///tmp/My \\\"Sub\\\".srt\" select",
+            player.commands.single()
+        )
+    }
+
+    @Test
     fun decoderInfoFlowObservesAndRemovesDecoderPropertiesWithCollectors() = runBlocking {
         val player = FakeMpvPlayer(emptyMap())
         val playerScope = CoroutineScope(Job())
@@ -172,6 +259,8 @@ class SharedCommonTest {
     ) : AbsMpvPlayer() {
         val observedProperties = mutableListOf<String>()
         val removedProperties = mutableListOf<String>()
+        val setProperties = mutableMapOf<String, String>()
+        val commands = mutableListOf<String>()
 
         fun emitEvent(event: MpvEvent) {
             listeners.forEach { it(event) }
@@ -180,7 +269,10 @@ class SharedCommonTest {
         override fun initialize(): Boolean = true
         override fun attach(view: Any) = Unit
         override fun detach() = Unit
-        override fun commandString(cmd: String): Int = 0
+        override fun commandString(cmd: String): Int {
+            commands += cmd
+            return 0
+        }
         override fun load(uri: String): Int = 0
         override fun addToPlaylist(uri: String): Int = 0
         override fun getPlaylist(): List<MpvPlaylistItem> = emptyList()
@@ -200,7 +292,10 @@ class SharedCommonTest {
         override fun play(): Int = 0
         override fun pause(): Int = 0
         override fun stop(): Int = 0
-        override fun setProperty(name: String, value: String): Int = 0
+        override fun setProperty(name: String, value: String): Int {
+            setProperties[name] = value
+            return 0
+        }
         override fun getProperty(name: String): String? = properties[name]
         override fun terminate() = Unit
         override fun startEventLoop() {
