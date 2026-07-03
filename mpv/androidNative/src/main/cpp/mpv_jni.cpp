@@ -61,7 +61,7 @@ typedef int (*fn_mpv_command_string)(void*, const char*);
 typedef int (*fn_mpv_set_option_string)(void*, const char*, const char*);
 typedef int (*fn_mpv_set_property_string)(void*, const char*, const char*);
 typedef int (*fn_mpv_set_property)(void*, const char*, mpv_format, void*);
-typedef int (*fn_mpv_get_property_string)(void*, const char*, char**);
+typedef char* (*fn_mpv_get_property_string)(void*, const char*);
 typedef int (*fn_mpv_observe_property)(void*, uint64_t, const char*, int);
 typedef int (*fn_mpv_unobserve_property)(void*, uint64_t);
 typedef mpv_event* (*fn_mpv_wait_event)(void*, double);
@@ -296,10 +296,9 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_guyuuan_mpv_1kmp_MpvNative_mpvGetProperty(JNIEnv* env, jclass, jstring name) {
     if (!p_mpv_get_property_string || !mpv_handle_ptr || !p_mpv_free) return nullptr;
     const char* n = env->GetStringUTFChars(name, nullptr);
-    char* out = nullptr;
-    int r = p_mpv_get_property_string(mpv_handle_ptr, n, &out);
+    char* out = p_mpv_get_property_string(mpv_handle_ptr, n);
     env->ReleaseStringUTFChars(name, n);
-    if (r < 0 || !out) return nullptr;
+    if (!out) return nullptr;
     jstring js = env->NewStringUTF(out);
     p_mpv_free(out);
     return js;
