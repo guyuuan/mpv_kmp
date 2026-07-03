@@ -63,6 +63,7 @@ typedef int (*fn_mpv_set_property_string)(void*, const char*, const char*);
 typedef int (*fn_mpv_set_property)(void*, const char*, mpv_format, void*);
 typedef int (*fn_mpv_get_property_string)(void*, const char*, char**);
 typedef int (*fn_mpv_observe_property)(void*, uint64_t, const char*, int);
+typedef int (*fn_mpv_unobserve_property)(void*, uint64_t);
 typedef mpv_event* (*fn_mpv_wait_event)(void*, double);
 typedef void (*fn_mpv_wakeup)(void*);
 typedef void (*fn_mpv_free)(void*);
@@ -84,6 +85,7 @@ static fn_mpv_set_property_string p_mpv_set_property_string = nullptr;
 static fn_mpv_set_property p_mpv_set_property = nullptr;
 static fn_mpv_get_property_string p_mpv_get_property_string = nullptr;
 static fn_mpv_observe_property p_mpv_observe_property = nullptr;
+static fn_mpv_unobserve_property p_mpv_unobserve_property = nullptr;
 static fn_mpv_wait_event p_mpv_wait_event = nullptr;
 static fn_mpv_wakeup p_mpv_wakeup = nullptr;
 static fn_mpv_free p_mpv_free = nullptr;
@@ -139,6 +141,7 @@ static void resolve() {
     p_mpv_set_property = (fn_mpv_set_property)dlsym(lib_handle, "mpv_set_property");
     p_mpv_get_property_string = (fn_mpv_get_property_string)dlsym(lib_handle, "mpv_get_property_string");
     p_mpv_observe_property = (fn_mpv_observe_property)dlsym(lib_handle, "mpv_observe_property");
+    p_mpv_unobserve_property = (fn_mpv_unobserve_property)dlsym(lib_handle, "mpv_unobserve_property");
     p_mpv_wait_event = (fn_mpv_wait_event)dlsym(lib_handle, "mpv_wait_event");
     p_mpv_wakeup = (fn_mpv_wakeup)dlsym(lib_handle, "mpv_wakeup");
     p_mpv_free = (fn_mpv_free)dlsym(lib_handle, "mpv_free");
@@ -150,7 +153,8 @@ static void resolve() {
     p_mpv_render_context_report_swap = (fn_mpv_render_context_report_swap)dlsym(lib_handle, "mpv_render_context_report_swap");
     if (!p_mpv_create || !p_mpv_initialize || !p_mpv_command_string ||
         !p_mpv_set_option_string || !p_mpv_set_property_string ||
-        !p_mpv_set_property || !p_mpv_wait_event || !p_mpv_terminate_destroy) {
+        !p_mpv_set_property || !p_mpv_observe_property || !p_mpv_unobserve_property ||
+        !p_mpv_wait_event || !p_mpv_terminate_destroy) {
         LOGE("failed to resolve required libmpv symbols");
     }
     register_java_vm();
@@ -184,6 +188,7 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_guyuuan_mpv_1kmp_MpvNative_mpvInit(JNIEnv*, jclass) {
     resolve();
     if (!p_mpv_create || !p_mpv_initialize || !p_mpv_set_option_string ||
+        !p_mpv_observe_property || !p_mpv_unobserve_property ||
         !p_mpv_terminate_destroy) {
         LOGE("mpvInit failed: required symbols are missing");
         return JNI_FALSE;
@@ -301,17 +306,30 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvGetProperty(JNIEnv* env, jclass, jstring 
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvObserveProperty(JNIEnv* env, jclass, jstring name, jint format) {
+Java_com_guyuuan_mpv_1kmp_MpvNative_mpvObserveProperty(JNIEnv* env, jclass, jstring name, jlong reply_userdata, jint format) {
     if (!p_mpv_observe_property || !mpv_handle_ptr) {
         LOGE("mpvObserveProperty called before mpv was initialized");
         return -1;
     }
     const char* n = env->GetStringUTFChars(name, nullptr);
-    int r = p_mpv_observe_property(mpv_handle_ptr, 0, n, format);
+    int r = p_mpv_observe_property(mpv_handle_ptr, static_cast<uint64_t>(reply_userdata), n, format);
     if (r < 0) {
         LOGE("mpv_observe_property failed: %d (%s), name=%s", r, mpv_error(r), n);
     }
     env->ReleaseStringUTFChars(name, n);
+    return r;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_guyuuan_mpv_1kmp_MpvNative_mpvUnobserveProperty(JNIEnv*, jclass, jlong reply_userdata) {
+    if (!p_mpv_unobserve_property || !mpv_handle_ptr) {
+        LOGE("mpvUnobserveProperty called before mpv was initialized");
+        return -1;
+    }
+    int r = p_mpv_unobserve_property(mpv_handle_ptr, static_cast<uint64_t>(reply_userdata));
+    if (r < 0) {
+        LOGE("mpv_unobserve_property failed: %d (%s), reply_userdata=%lld", r, mpv_error(r), static_cast<long long>(reply_userdata));
+    }
     return r;
 }
 
@@ -322,7 +340,7 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvWaitEvent(JNIEnv* env, jclass, jdouble ti
     if (!e || e->event_id == 0) return nullptr;
 
     jclass dtoCls = env->FindClass("com/guyuuan/mpv_kmp/MpvEventDTO");
-    jmethodID ctor = env->GetMethodID(dtoCls, "<init>", "(IILjava/lang/String;Ljava/lang/String;)V");
+    jmethodID ctor = env->GetMethodID(dtoCls, "<init>", "(IIJLjava/lang/String;Ljava/lang/String;)V");
 
     jstring jName = nullptr;
     jstring jValue = nullptr;
@@ -343,7 +361,15 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvWaitEvent(JNIEnv* env, jclass, jdouble ti
         }
     }
 
-    return env->NewObject(dtoCls, ctor, (jint)e->event_id, (jint)e->error, jName, jValue);
+    return env->NewObject(
+        dtoCls,
+        ctor,
+        (jint)e->event_id,
+        (jint)e->error,
+        static_cast<jlong>(e->reply_userdata),
+        jName,
+        jValue
+    );
 }
 
 extern "C" JNIEXPORT void JNICALL

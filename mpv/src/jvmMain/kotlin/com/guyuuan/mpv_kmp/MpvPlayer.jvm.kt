@@ -634,12 +634,9 @@ private fun desktopHwdecOption(): String {
     }
 }
 
-private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRenderSupport {
+private class JvmMpvPlayer : AbsMpvPlayer(), RenderContextSupport, EmbeddedGpuRenderSupport {
     private var ctx: Pointer? = null
-    private var listener: ((MpvEvent) -> Unit)? = null
 
-    @Volatile
-    private var running = false
     private var scope: CoroutineScope? = null
     private var eventJob: Job? = null
     private var renderCtx: Pointer? = null
@@ -647,6 +644,8 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRender
     private var renderCallbackAdapter: mpv_render_update_fn? = null
     private var initParams: mpv_opengl_init_params? = null
     private var getProcAddrCallback: mpv_opengl_get_proc_address_fn? = null
+    private val observedProperties = mutableMapOf<String, Long>()
+    private var nextPropertyObserverId = 1L
 
     override fun initialize(): Boolean {
         if (ctx != null) return true
@@ -769,10 +768,6 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRender
     override fun playlistPrev(): Int = commandString("playlist-prev")
     override fun playlistClear(): Int = commandString("playlist-clear")
     override fun seekTo(position: Double): Int = command("no-osd", "seek", position.toString(), "absolute")
-    override fun setEventListener(listener: (MpvEvent) -> Unit) {
-        this.listener = listener
-        startEventLoop()
-    }
 
     override fun setCoroutineScope(scope: CoroutineScope) {
         this.scope = scope
@@ -781,17 +776,41 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRender
 
     override fun observeProperty(name: String) {
         val c = ctx ?: return
+        if (observedProperties.containsKey(name)) return
+        val observerId = allocatePropertyObserverId()
+        observedProperties[name] = observerId
         // format 1 = MPV_FORMAT_STRING
-        MPV.lib.mpv_observe_property(c, 0, name, 1)
+        val ret = MPV.lib.mpv_observe_property(c, observerId, name, 1)
+        if (ret < 0) {
+            val err = MPV.lib.mpv_error_string(ret) ?: "unknown"
+            println("JvmMpvPlayer: observeProperty failed: $ret ($err), name=$name")
+            if (observedProperties[name] == observerId) {
+                observedProperties.remove(name)
+            }
+            return
+        }
         startEventLoop()
     }
 
     override fun removePropertyObservation(name: String) {
-        // Not easily supported without tracking reply_userdata, but passing 0 unobserves all with 0?
-        // Actually mpv_unobserve_property removes by reply_userdata.
-        // If we use 0 for all, we can't unobserve specific property easily without clearing all.
-        // For simplicity, we just ignore unobserve or we should map names to IDs.
-        // Given the requirement, we'll skip complex ID mapping for now or implement if strictly needed.
+        val c = ctx ?: return
+        val observerId = observedProperties[name] ?: return
+        val ret = MPV.lib.mpv_unobserve_property(c, observerId)
+        if (ret < 0) {
+            val err = MPV.lib.mpv_error_string(ret) ?: "unknown"
+            println("JvmMpvPlayer: removePropertyObservation failed: $ret ($err), name=$name")
+            return
+        }
+        observedProperties.remove(name)
+    }
+
+    private fun allocatePropertyObserverId(): Long {
+        val observerId = nextPropertyObserverId
+        nextPropertyObserverId += 1
+        if (nextPropertyObserverId == 0L) {
+            nextPropertyObserverId = 1L
+        }
+        return observerId
     }
 
     override fun play(): Int {
@@ -857,8 +876,11 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRender
     }
 
     override fun terminate() {
-        val c = ctx ?: return
+        val c = ctx
         running = false
+        observedProperties.clear()
+        nextPropertyObserverId = 1L
+        if (c == null) return
         eventJob?.cancel()
         MPV.lib.mpv_wakeup(c) // Wake up wait_event
         renderCtx?.let {
@@ -876,7 +898,7 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRender
         renderCallbackAdapter = null
     }
 
-    private fun startEventLoop() {
+    override fun startEventLoop() {
         if (running) return
         if (scope == null) return
         running = true
@@ -903,6 +925,13 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRender
         var name: String? = null
         var value: String? = null
 
+        if (type == MpvEventType.PropertyChange &&
+            event.reply_userdata != 0L &&
+            !observedProperties.containsValue(event.reply_userdata)
+        ) {
+            return
+        }
+
         if (type == MpvEventType.LogMessage && event.data != null) {
             val lm = Structure.newInstance(mpv_event_log_message::class.java, event.data)
             lm.read()
@@ -918,7 +947,7 @@ private class JvmMpvPlayer : IMpvPlayer, RenderContextSupport, EmbeddedGpuRender
             }
         }
 
-        listener?.invoke(MpvEvent(type, name, value, event.error))
+        listeners.forEach { it.invoke(MpvEvent(type, name, value, event.error)) }
     }
 
     private fun mapEventType(id: Int): MpvEventType {

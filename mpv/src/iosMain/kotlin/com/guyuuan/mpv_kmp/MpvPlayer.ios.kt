@@ -1,8 +1,8 @@
 package com.guyuuan.mpv_kmp
 
-import com.guyuuan.mpv_kmp.mpv.*
 import cnames.structs.mpv_handle
 import cnames.structs.mpv_render_context
+import com.guyuuan.mpv_kmp.mpv.*
 import kotlinx.cinterop.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +29,9 @@ private fun mpvRenderUpdateCallback(data: COpaquePointer?) {
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private fun mpvGetOpenGlProcAddress(ctx: COpaquePointer?, name: CPointer<ByteVar>?): COpaquePointer? {
+private fun mpvGetOpenGlProcAddress(
+    ctx: COpaquePointer?, name: CPointer<ByteVar>?
+): COpaquePointer? {
     val symbol = name?.toKString() ?: return null
     return dlsym(openGlEsHandle(), symbol) ?: dlsym(null, symbol)
 }
@@ -38,8 +40,7 @@ private fun mpvGetOpenGlProcAddress(ctx: COpaquePointer?, name: CPointer<ByteVar
 private fun openGlEsHandle(): COpaquePointer? {
     if (openGlEsFrameworkHandle == null) {
         openGlEsFrameworkHandle = dlopen(
-            "/System/Library/Frameworks/OpenGLES.framework/OpenGLES",
-            RTLD_LAZY
+            "/System/Library/Frameworks/OpenGLES.framework/OpenGLES", RTLD_LAZY
         )
     }
     return openGlEsFrameworkHandle
@@ -50,14 +51,14 @@ private fun openGlEsHandle(): COpaquePointer? {
 private var openGlEsFrameworkHandle: COpaquePointer? = null
 
 @OptIn(ExperimentalForeignApi::class)
-private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
+private class IosMpvPlayer : AbsMpvPlayer(), IosRenderContextSupport {
     private var handle: CPointer<mpv_handle>? = null
     private var renderContext: CPointer<mpv_render_context>? = null
     private var renderCallbackRef: StableRef<(() -> Unit)>? = null
-    private var listener: ((MpvEvent) -> Unit)? = null
-    @Volatile private var running = false
     private var scope: CoroutineScope? = null
     private var eventJob: Job? = null
+    private val observedProperties = mutableMapOf<String, ULong>()
+    private var nextPropertyObserverId = 1uL
 
     override fun initialize(): Boolean {
         if (handle != null) return true
@@ -82,14 +83,18 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         return true
     }
 
-    private fun setOptionalOptionBeforeInitialize(h: CPointer<mpv_handle>, name: String, value: String) {
+    private fun setOptionalOptionBeforeInitialize(
+        h: CPointer<mpv_handle>, name: String, value: String
+    ) {
         val result = mpv_set_option_string(h, name, value)
         if (result != 0) {
             println("IosMpvPlayer: ignored optional $name=$value: $result (${mpvError(result)})")
         }
     }
 
-    private fun setOptionBeforeInitialize(h: CPointer<mpv_handle>, name: String, value: String): Boolean {
+    private fun setOptionBeforeInitialize(
+        h: CPointer<mpv_handle>, name: String, value: String
+    ): Boolean {
         val result = mpv_set_option_string(h, name, value)
         if (result != 0) {
             println("IosMpvPlayer: failed to set $name=$value: $result (${mpvError(result)})")
@@ -99,19 +104,24 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         }
         return true
     }
+
     override fun attach(view: Any) {
         // iOS renders through mpv_render_context; the window-id path does not draw into UIKit.
     }
+
     override fun detach() {
         // See attach().
     }
+
     override fun commandString(cmd: String): Int {
         val h = handle ?: return -1
         return mpv_command_string(h, cmd)
     }
+
     override fun load(uri: String): Int {
         return commandString("loadfile \"$uri\"")
     }
+
     override fun addToPlaylist(uri: String): Int = commandString("loadfile \"$uri\" append")
     override fun getPlaylist(): List<MpvPlaylistItem> = readPlaylist()
     override fun removeFromPlaylist(index: Int): Int = commandString("playlist-remove $index")
@@ -119,35 +129,65 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
     override fun playlistPrev(): Int = commandString("playlist-prev")
     override fun playlistClear(): Int = commandString("playlist-clear")
     override fun seekTo(position: Double): Int = commandString("no-osd seek $position absolute")
-    override fun setEventListener(listener: (MpvEvent) -> Unit) {
-        this.listener = listener
-        startEventLoop()
-    }
+
     override fun setCoroutineScope(scope: CoroutineScope) {
         this.scope = scope
         startEventLoop()
     }
+
     override fun observeProperty(name: String) {
         val h = handle ?: return
-        mpv_observe_property(h, 0.toULong(), name, MPV_FORMAT_STRING)
+        if (observedProperties.containsKey(name)) return
+        val observerId = allocatePropertyObserverId()
+        observedProperties[name] = observerId
+        val result = mpv_observe_property(h, observerId, name, MPV_FORMAT_STRING)
+        if (result != 0) {
+            println("IosMpvPlayer: observeProperty failed: $result (${mpvError(result)}), name=$name")
+            if (observedProperties[name] == observerId) {
+                observedProperties.remove(name)
+            }
+            return
+        }
         startEventLoop()
     }
+
     override fun removePropertyObservation(name: String) {
-        // See JVM note
+        val h = handle ?: return
+        val observerId = observedProperties[name] ?: return
+        val result = mpv_unobserve_property(h, observerId)
+        if (result < 0) {
+            println("IosMpvPlayer: removePropertyObservation failed: $result (${mpvError(result)}), name=$name")
+            return
+        }
+        observedProperties.remove(name)
     }
+
+    private fun allocatePropertyObserverId(): ULong {
+        val observerId = nextPropertyObserverId
+        nextPropertyObserverId += 1uL
+        if (nextPropertyObserverId == 0uL) {
+            nextPropertyObserverId = 1uL
+        }
+        return observerId
+    }
+
     override fun play(): Int {
         return setProperty("pause", "no")
     }
+
     override fun pause(): Int {
         return setProperty("pause", "yes")
     }
+
     override fun stop(): Int {
         return commandString("stop")
     }
+
     override fun setProperty(name: String, value: String): Int {
         val h = handle ?: return -1
         return mpv_set_property_string(h, name, value)
     }
+
     override fun getProperty(name: String): String? {
         val h = handle ?: return null
         val value = mpv_get_property_string(h, name) ?: return null
@@ -155,6 +195,7 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         mpv_free(value)
         return result
     }
+
     private fun readPlaylist(): List<MpvPlaylistItem> {
         val count = getProperty("playlist/count")?.toIntOrNull() ?: return emptyList()
         return (0 until count).mapNotNull { index ->
@@ -167,9 +208,13 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
             )
         }
     }
+
     override fun terminate() {
-        val h = handle ?: return
+        val h = handle
         running = false
+        observedProperties.clear()
+        nextPropertyObserverId = 1uL
+        if (h == null) return
         freeRenderContext()
         mpv_wakeup(h)
         mpv_terminate_destroy(h)
@@ -177,7 +222,8 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         eventJob?.cancel()
         eventJob = null
     }
-    private fun startEventLoop() {
+
+    override fun startEventLoop() {
         if (running) return
         if (scope == null) return
         running = true
@@ -200,6 +246,13 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         var name: String? = null
         var value: String? = null
 
+        if (type == MpvEventType.PropertyChange && event.reply_userdata != 0uL && !observedProperties.containsValue(
+                event.reply_userdata
+            )
+        ) {
+            return
+        }
+
         if (type == MpvEventType.LogMessage && event.data != null) {
             val log = event.data!!.reinterpret<mpv_event_log_message>().pointed
             val level = log.level?.toKString()
@@ -207,35 +260,16 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
             val text = log.text?.toKString()
             println("mpv[$level] $prefix: $text")
         }
-        
+
         if (type == MpvEventType.PropertyChange && event.data != null) {
-             val prop = event.data!!.reinterpret<mpv_event_property>().pointed
-             if (prop.name != null) {
-                 name = prop.name!!.toKString()
-                 value = getProperty(name)
-             }
+            val prop = event.data!!.reinterpret<mpv_event_property>().pointed
+            if (prop.name != null) {
+                name = prop.name!!.toKString()
+                value = getProperty(name)
+            }
         }
 
-        when (type) {
-            MpvEventType.FileLoaded,
-            MpvEventType.VideoReconfig,
-            MpvEventType.PlaybackRestart,
-            MpvEventType.EndFile -> dumpPlaybackState(type)
-            else -> {}
-        }
-
-        listener?.invoke(MpvEvent(type, name, value, event.error))
-    }
-
-    private fun dumpPlaybackState(type: MpvEventType) {
-        val state = listOf(
-            "vid=${getProperty("vid")}",
-            "video-codec=${getProperty("video-codec")}",
-            "vo-configured=${getProperty("vo-configured")}",
-            "video-out-params=${getProperty("video-out-params")}",
-            "estimated-vf-fps=${getProperty("estimated-vf-fps")}",
-        ).joinToString(", ")
-        println("IosMpvPlayer: $type state: $state")
+        listeners.forEach{ it.invoke(MpvEvent(type, name, value, event.error)) }
     }
 
     private fun mapEventType(id: mpv_event_id): MpvEventType {
@@ -287,7 +321,13 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
                 println("IosMpvPlayer: OpenGL mpv_render_context_create success")
                 true
             } else {
-                println("IosMpvPlayer: OpenGL mpv_render_context_create failed: $result (${mpvError(result)})")
+                println(
+                    "IosMpvPlayer: OpenGL mpv_render_context_create failed: $result (${
+                        mpvError(
+                            result
+                        )
+                    })"
+                )
                 false
             }
         }
@@ -349,9 +389,7 @@ private class IosMpvPlayer : IMpvPlayer, IosRenderContextSupport {
         val ref = StableRef.create(callback)
         renderCallbackRef = ref
         mpv_render_context_set_update_callback(
-            ctx,
-            staticCFunction(::mpvRenderUpdateCallback),
-            ref.asCPointer()
+            ctx, staticCFunction(::mpvRenderUpdateCallback), ref.asCPointer()
         )
     }
 
