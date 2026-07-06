@@ -617,24 +617,35 @@ internal enum class DesktopRenderMode {
     NativeWindow
 }
 
-internal fun desktopRenderMode(): DesktopRenderMode {
-    return when (System.getProperty("mpv.kmp.desktop.render")?.lowercase()) {
-        "software", "sw" -> DesktopRenderMode.Software
-        "embedded-gpu", "embedded_gpu", "gpu", "opengl", "gl" -> DesktopRenderMode.EmbeddedGpu
-        "native-window", "native_window", "wid" -> DesktopRenderMode.NativeWindow
-        else -> if (osId() == "darwin") DesktopRenderMode.EmbeddedGpu else DesktopRenderMode.Software
-    }
-}
+//internal fun desktopRenderMode(): DesktopRenderMode {
+//    return when (System.getProperty("mpv.kmp.desktop.render")?.lowercase()) {
+//        "software", "sw" -> DesktopRenderMode.Software
+//        "embedded-gpu", "embedded_gpu", "gpu", "opengl", "gl" -> DesktopRenderMode.EmbeddedGpu
+//        "native-window", "native_window", "wid" -> DesktopRenderMode.NativeWindow
+//        else -> if (osId() == "darwin") DesktopRenderMode.EmbeddedGpu else DesktopRenderMode.Software
+//    }
+//}
 
-private fun desktopHwdecOption(): String {
-    return when (val value = System.getProperty("mpv.kmp.desktop.hwdec")?.trim()?.lowercase()) {
-        null, "" -> "auto-safe"
-        "false", "off" -> "no"
-        else -> value
-    }
-}
+//private fun desktopHwdecOption(): String {
+//    return when (val value = System.getProperty("mpv.kmp.desktop.hwdec")?.trim()?.lowercase()) {
+//        null, "" -> "auto-safe"
+//        "false", "off" -> "no"
+//        else -> value
+//    }
+//}
 
-private class JvmMpvPlayer : AbsMpvPlayer(), RenderContextSupport, EmbeddedGpuRenderSupport {
+private class JvmMpvPlayer(
+    config: Map<String, String> = IMpvPlayer.DEFAULT_CONFIG
+) : AbsMpvPlayer(config), RenderContextSupport, EmbeddedGpuRenderSupport {
+    private companion object {
+        fun defaultConfig(): Map<String, String> = IMpvPlayer.DEFAULT_CONFIG+ mapOf(
+//            "vo" to "libmpv",
+//            "hwdec" to desktopHwdecOption(),
+//            "vd-lavc-dr" to "no",
+//            "sub-margin-y" to "80"
+        )
+    }
+
     private var ctx: Pointer? = null
 
     private var scope: CoroutineScope? = null
@@ -664,22 +675,12 @@ private class JvmMpvPlayer : AbsMpvPlayer(), RenderContextSupport, EmbeddedGpuRe
                 false
             } else {
                 val c = ctx!!
-                val hwdec = desktopHwdecOption()
-                val options = listOf(
-                    "vo" to "libmpv",
-                    "hwdec" to hwdec,
-                    "vd-lavc-dr" to "no",
-                    "sub-margin-y" to "80"
-                )
-                val optionsOk = options.all { (name, value) ->
-                    setOptionBeforeInitialize(c, rid, name, value)
-                }
-                if (!optionsOk) {
+                if (!loadConfig()) {
                     MPV.lib.mpv_terminate_destroy(c)
                     ctx = null
                     false
                 } else {
-                    println("JvmMpvPlayer: desktop hwdec=$hwdec")
+                    println("JvmMpvPlayer: desktop hwdec=${config["hwdec"]}")
                     nativeTrace("init.$rid.before.mpv_initialize")
                     val r = MPV.lib.mpv_initialize(c)
                     nativeTrace("init.$rid.after.mpv_initialize.ret=$r")
@@ -718,14 +719,16 @@ private class JvmMpvPlayer : AbsMpvPlayer(), RenderContextSupport, EmbeddedGpuRe
         }
     }
 
-    private fun setOptionBeforeInitialize(c: Pointer, rid: String, name: String, value: String): Boolean {
-        nativeTrace("init.$rid.before.set_option.$name")
+    override fun setConfigOption(name: String, value: String): Int {
+        val c = ctx ?: return -1
+        nativeTrace("init.before.set_option.$name")
         val ret = MPV.lib.mpv_set_option_string(c, name, value)
-        nativeTrace("init.$rid.after.set_option.$name.ret=$ret")
-        if (ret == 0) return true
-        val err = MPV.lib.mpv_error_string(ret) ?: "unknown"
-        println("JvmMpvPlayer: failed to set option $name=$value: $ret ($err)")
-        return false
+        nativeTrace("init.after.set_option.$name.ret=$ret")
+        if (ret < 0) {
+            val err = MPV.lib.mpv_error_string(ret) ?: "unknown"
+            println("JvmMpvPlayer: failed to set option $name=$value: $ret ($err)")
+        }
+        return ret
     }
 
     override fun attach(view: Any) {

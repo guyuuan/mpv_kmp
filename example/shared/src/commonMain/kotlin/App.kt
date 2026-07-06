@@ -2,9 +2,7 @@ package com.guyuuan.mpv_kmp.example
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -24,8 +22,10 @@ import kotlin.time.Duration.Companion.milliseconds
 fun App() {
     MaterialTheme {
         val playerState = rememberMpvPlayer()
+//        val videoUrl =
+//            "https://emby.guyuuan.com:23231/emby/Items/39635/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_39635"
         val videoUrl =
-            "https://emby.guyuuan.com:23231/emby/Items/39635/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_39635"
+            "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275"
 
         fun playVideo() {
             println("start load video: $videoUrl")
@@ -42,7 +42,8 @@ fun App() {
                 modifier = Modifier.fillMaxSize(), state = playerState
             )
             BottomBar(
-                modifier = Modifier.align(alignment = Alignment.BottomCenter).windowInsetsPadding(insets = WindowInsets.safeContent),
+                modifier = Modifier.align(alignment = Alignment.BottomCenter)
+                    .windowInsetsPadding(insets = WindowInsets.safeContent),
                 playerState = playerState
             )
         }

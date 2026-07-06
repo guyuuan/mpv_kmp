@@ -14,6 +14,7 @@ import com.jogamp.opengl.GLEventListener
 import com.jogamp.opengl.GLProfile
 import com.jogamp.opengl.GLRunnable
 import com.jogamp.opengl.awt.GLCanvas
+import com.sun.jna.Pointer
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Canvas
 import org.jetbrains.skia.ImageInfo
@@ -21,22 +22,17 @@ import org.jetbrains.skiko.SkiaLayer
 import org.jetbrains.skiko.SkikoRenderDelegate
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
-import com.sun.jna.Pointer
 
 @Composable
 actual fun MpvComposeView(
     modifier: Modifier,
     state: MpvPlayer
 ) {
-    when (desktopRenderMode()) {
-        DesktopRenderMode.EmbeddedGpu -> MpvEmbeddedGpuView(modifier, state)
-        DesktopRenderMode.NativeWindow -> MpvNativeWindowView(modifier, state)
-        DesktopRenderMode.Software -> MpvSoftwareView(modifier, state)
-    }
+    MpvOpenGLView(modifier, state)
 }
 
 @Composable
-private fun MpvEmbeddedGpuView(
+private fun MpvOpenGLView(
     modifier: Modifier,
     state: MpvPlayer
 ) {

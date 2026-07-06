@@ -51,7 +51,22 @@ private fun openGlEsHandle(): COpaquePointer? {
 private var openGlEsFrameworkHandle: COpaquePointer? = null
 
 @OptIn(ExperimentalForeignApi::class)
-private class IosMpvPlayer : AbsMpvPlayer(), IosRenderContextSupport {
+private class IosMpvPlayer(
+    config: Map<String, String> = DEFAULT_CONFIG
+) : AbsMpvPlayer(config), IosRenderContextSupport {
+    private companion object {
+        val DEFAULT_CONFIG: Map<String, String> = IMpvPlayer.DEFAULT_CONFIG + mapOf(
+            "vo" to "libmpv",
+            "ao" to "audiounit"
+//            "profile" to "sw-fast",
+//            "hwdec" to "videotoolbox-copy",
+//            "sws-fast" to "yes",
+//            "zimg-fast" to "yes",
+//            "vd-lavc-dr" to "no",
+//            "sub-margin-y" to "80"
+        )
+    }
+
     private var handle: CPointer<mpv_handle>? = null
     private var renderContext: CPointer<mpv_render_context>? = null
     private var renderCallbackRef: StableRef<(() -> Unit)>? = null
@@ -64,15 +79,11 @@ private class IosMpvPlayer : AbsMpvPlayer(), IosRenderContextSupport {
         if (handle != null) return true
         handle = mpv_create()
         val h = handle ?: return false
-        if (!setOptionBeforeInitialize(h, "vo", "libmpv")) return false
-        if (!setOptionBeforeInitialize(h, "audio", "no")) return false
-        if (!setOptionBeforeInitialize(h, "ao", "null")) return false
-        setOptionalOptionBeforeInitialize(h, "profile", "sw-fast")
-        setOptionalOptionBeforeInitialize(h, "hwdec", "videotoolbox-copy")
-        setOptionalOptionBeforeInitialize(h, "sws-fast", "yes")
-        setOptionalOptionBeforeInitialize(h, "zimg-fast", "yes")
-        setOptionalOptionBeforeInitialize(h, "vd-lavc-dr", "no")
-        setOptionalOptionBeforeInitialize(h, "sub-margin-y", "80")
+        if (!loadConfig()) {
+            mpv_terminate_destroy(h)
+            handle = null
+            return false
+        }
         val r = mpv_initialize(h)
         if (r != 0) {
             println("IosMpvPlayer: mpv_initialize failed: $r (${mpvError(r)})")
@@ -84,26 +95,13 @@ private class IosMpvPlayer : AbsMpvPlayer(), IosRenderContextSupport {
         return true
     }
 
-    private fun setOptionalOptionBeforeInitialize(
-        h: CPointer<mpv_handle>, name: String, value: String
-    ) {
+    override fun setConfigOption(name: String, value: String): Int {
+        val h = handle ?: return -1
         val result = mpv_set_option_string(h, name, value)
-        if (result != 0) {
-            println("IosMpvPlayer: ignored optional $name=$value: $result (${mpvError(result)})")
-        }
-    }
-
-    private fun setOptionBeforeInitialize(
-        h: CPointer<mpv_handle>, name: String, value: String
-    ): Boolean {
-        val result = mpv_set_option_string(h, name, value)
-        if (result != 0) {
+        if (result < 0) {
             println("IosMpvPlayer: failed to set $name=$value: $result (${mpvError(result)})")
-            mpv_terminate_destroy(h)
-            handle = null
-            return false
         }
-        return true
+        return result
     }
 
     override fun attach(view: Any) {
@@ -270,7 +268,7 @@ private class IosMpvPlayer : AbsMpvPlayer(), IosRenderContextSupport {
             }
         }
 
-        listeners.forEach{ it.invoke(MpvEvent(type, name, value, event.error)) }
+        listeners.forEach { it.invoke(MpvEvent(type, name, value, event.error)) }
     }
 
     private fun mapEventType(id: mpv_event_id): MpvEventType {

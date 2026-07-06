@@ -188,6 +188,26 @@ class SharedCommonTest {
     }
 
     @Test
+    fun absMpvPlayerLoadsConstructorConfig() {
+        val player = FakeMpvPlayer(
+            properties = emptyMap(),
+            config = mapOf(
+                "vo" to "libmpv",
+                "sub-margin-y" to "80"
+            )
+        )
+
+        assertEquals(true, player.initialize())
+        assertEquals(
+            listOf(
+                "vo" to "libmpv",
+                "sub-margin-y" to "80"
+            ),
+            player.configOptions
+        )
+    }
+
+    @Test
     fun decoderInfoFlowObservesAndRemovesDecoderPropertiesWithCollectors() = runBlocking {
         val player = FakeMpvPlayer(emptyMap())
         val playerScope = CoroutineScope(Job())
@@ -255,18 +275,24 @@ class SharedCommonTest {
     }
 
     private class FakeMpvPlayer(
-        private val properties: Map<String, String?>
-    ) : AbsMpvPlayer() {
+        private val properties: Map<String, String?>,
+        config: Map<String, String> = emptyMap()
+    ) : AbsMpvPlayer(config) {
         val observedProperties = mutableListOf<String>()
         val removedProperties = mutableListOf<String>()
         val setProperties = mutableMapOf<String, String>()
         val commands = mutableListOf<String>()
+        val configOptions = mutableListOf<Pair<String, String>>()
 
         fun emitEvent(event: MpvEvent) {
             listeners.forEach { it(event) }
         }
 
-        override fun initialize(): Boolean = true
+        override fun initialize(): Boolean = loadConfig()
+        override fun setConfigOption(name: String, value: String): Int {
+            configOptions += name to value
+            return 0
+        }
         override fun attach(view: Any) = Unit
         override fun detach() = Unit
         override fun commandString(cmd: String): Int {

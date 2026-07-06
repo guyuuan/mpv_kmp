@@ -13,6 +13,7 @@ static void* lib_handle = nullptr;
 static void* avcodec_handle = nullptr;
 static JavaVM* java_vm_ptr = nullptr;
 static jobject surface_ref = nullptr;
+static bool mpv_initialized = false;
 
 typedef enum mpv_format {
     MPV_FORMAT_NONE             = 0,
@@ -199,24 +200,90 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvInit(JNIEnv*, jclass) {
         LOGE("mpv_create failed");
         return JNI_FALSE;
     }
-    if (!set_option("vo", "gpu") ||
-        !set_option("gpu-context", "android") ||
-        !set_option("gpu-api", "opengl") ||
-        !set_option("hwdec", "mediacodec-copy") ||
-        !set_option("vd-lavc-dr", "no") ||
-        !set_option("sub-margin-y", "80") ||
-        !set_option("ao", "audiotrack")) {
-        p_mpv_terminate_destroy(mpv_handle_ptr);
-        mpv_handle_ptr = nullptr;
-        return JNI_FALSE;
-    }
+//    if (!set_option("vo", "gpu") ||
+//        !set_option("gpu-context", "android") ||
+//        !set_option("gpu-api", "opengl") ||
+//        !set_option("hwdec", "mediacodec-copy") ||
+//        !set_option("vd-lavc-dr", "no") ||
+//        !set_option("sub-margin-y", "80") ||
+//        !set_option("ao", "audiotrack")) {
+//        p_mpv_terminate_destroy(mpv_handle_ptr);
+//        mpv_handle_ptr = nullptr;
+//        mpv_initialized = false;
+//        return JNI_FALSE;
+//    }
     int r = p_mpv_initialize(mpv_handle_ptr);
     if (r < 0) {
         LOGE("mpv_initialize failed: %d (%s)", r, mpv_error(r));
         p_mpv_terminate_destroy(mpv_handle_ptr);
         mpv_handle_ptr = nullptr;
+        mpv_initialized = false;
         return JNI_FALSE;
     }
+    mpv_initialized = true;
+    if (p_mpv_request_log_messages) {
+        int log_result = p_mpv_request_log_messages(mpv_handle_ptr, "warn");
+        if (log_result < 0) {
+            LOGW("mpv_request_log_messages failed: %d (%s)", log_result, mpv_error(log_result));
+        }
+    }
+    set_surface_wid();
+    LOGI("mpv initialized");
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_guyuuan_mpv_1kmp_MpvNative_mpvCreate(JNIEnv*, jclass) {
+    resolve();
+    if (!p_mpv_create || !p_mpv_initialize || !p_mpv_set_option_string ||
+        !p_mpv_observe_property || !p_mpv_unobserve_property ||
+        !p_mpv_terminate_destroy) {
+        LOGE("mpvCreate failed: required symbols are missing");
+        return JNI_FALSE;
+    }
+    if (mpv_handle_ptr) return JNI_TRUE;
+    mpv_handle_ptr = p_mpv_create();
+    if (!mpv_handle_ptr) {
+        LOGE("mpv_create failed");
+        return JNI_FALSE;
+    }
+    mpv_initialized = false;
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_guyuuan_mpv_1kmp_MpvNative_mpvSetOption(JNIEnv* env, jclass, jstring name, jstring value) {
+    if (!p_mpv_set_option_string || !mpv_handle_ptr || mpv_initialized) {
+        LOGE("mpvSetOption called before create or after initialize");
+        return -1;
+    }
+    const char* n = env->GetStringUTFChars(name, nullptr);
+    const char* v = env->GetStringUTFChars(value, nullptr);
+    int r = p_mpv_set_option_string(mpv_handle_ptr, n, v);
+    if (r < 0) {
+        LOGE("mpv_set_option_string %s=%s failed: %d (%s)", n, v, r, mpv_error(r));
+    }
+    env->ReleaseStringUTFChars(name, n);
+    env->ReleaseStringUTFChars(value, v);
+    return r;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_guyuuan_mpv_1kmp_MpvNative_mpvInitialize(JNIEnv*, jclass) {
+    if (!p_mpv_initialize || !mpv_handle_ptr) {
+        LOGE("mpvInitialize called before mpv was created");
+        return JNI_FALSE;
+    }
+    if (mpv_initialized) return JNI_TRUE;
+    int r = p_mpv_initialize(mpv_handle_ptr);
+    if (r < 0) {
+        LOGE("mpv_initialize failed: %d (%s)", r, mpv_error(r));
+        p_mpv_terminate_destroy(mpv_handle_ptr);
+        mpv_handle_ptr = nullptr;
+        mpv_initialized = false;
+        return JNI_FALSE;
+    }
+    mpv_initialized = true;
     if (p_mpv_request_log_messages) {
         int log_result = p_mpv_request_log_messages(mpv_handle_ptr, "warn");
         if (log_result < 0) {
@@ -387,6 +454,7 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvTerminate(JNIEnv* env, jclass) {
         }
         p_mpv_terminate_destroy(mpv_handle_ptr);
         mpv_handle_ptr = nullptr;
+        mpv_initialized = false;
     }
     if (surface_ref) {
         env->DeleteGlobalRef(surface_ref);
