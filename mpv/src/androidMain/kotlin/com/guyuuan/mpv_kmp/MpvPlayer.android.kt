@@ -5,13 +5,38 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
-private class AndroidMpvPlayer : AbsMpvPlayer() {
+private class AndroidMpvPlayer(
+    config: Map<String, String> = DEFAULT_CONFIG
+) : AbsMpvPlayer(config) {
+    private companion object {
+        val DEFAULT_CONFIG: Map<String, String> = IMpvPlayer.DEFAULT_CONFIG+ mapOf(
+            "vo" to "gpu",
+            "gpu-context" to "android",
+            "gpu-api" to "opengl",
+            "hwdec" to "mediacodec-copy",
+            "vd-lavc-dr" to "no",
+            "sub-margin-y" to "80",
+            "ao" to "audiotrack"
+        )
+    }
+
     private var scope: CoroutineScope? = null
     private var eventJob: Job? = null
     private val observedProperties = mutableMapOf<String, Long>()
     private var nextPropertyObserverId = 1L
+    private var initialized = false
 
-    override fun initialize(): Boolean = MpvNative.mpvInit()
+    override fun initialize(): Boolean {
+        if (initialized) return true
+        if (!MpvNative.mpvCreate()) return false
+        if (!loadConfig()) {
+            MpvNative.mpvTerminate()
+            return false
+        }
+        initialized = MpvNative.mpvInitialize()
+        return initialized
+    }
+    override fun setConfigOption(name: String, value: String): Int = MpvNative.mpvSetOption(name, value)
     override fun attach(view: Any) {
         if (view is android.view.Surface) {
             MpvNative.mpvAttachSurface(view)
@@ -85,6 +110,7 @@ private class AndroidMpvPlayer : AbsMpvPlayer() {
     }
     override fun terminate() {
         running = false
+        initialized = false
         observedProperties.clear()
         nextPropertyObserverId = 1L
         MpvNative.mpvTerminate() // calls wakeup

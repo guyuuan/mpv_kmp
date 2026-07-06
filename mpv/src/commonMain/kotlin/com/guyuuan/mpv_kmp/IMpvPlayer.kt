@@ -102,6 +102,13 @@ data class MpvDecoderInfo(
 typealias MpvEventListener = ((MpvEvent) -> Unit)
 
 interface IMpvPlayer {
+    companion object{
+        val DEFAULT_CONFIG = mapOf<String,String>(
+            "vo" to "gpu-next",
+            "hwdec" to "auto-copy",
+            "sub-margin-y" to "80",
+        )
+    }
     fun initialize(): Boolean
     fun attach(view: Any)
     fun detach()
@@ -175,7 +182,9 @@ interface IMpvPlayer {
     fun terminate()
 }
 
-abstract class AbsMpvPlayer : IMpvPlayer {
+abstract class AbsMpvPlayer(
+    protected val config: Map<String, String> = emptyMap()
+) : IMpvPlayer {
 
     protected val listeners: MutableList<MpvEventListener> = mutableListOf()
     @Volatile
@@ -193,6 +202,19 @@ abstract class AbsMpvPlayer : IMpvPlayer {
             listeners.remove(listener)
         }
     }
+
+    protected fun loadConfig(): Boolean {
+        config.forEach { (name, value) ->
+            val result = setConfigOption(name, value)
+            if (result < 0) {
+                println("AbsMpvPlayer: failed to set config $name=$value: $result")
+                return false
+            }
+        }
+        return true
+    }
+
+    protected open fun setConfigOption(name: String, value: String): Int = 0
 
     abstract fun startEventLoop()
 }

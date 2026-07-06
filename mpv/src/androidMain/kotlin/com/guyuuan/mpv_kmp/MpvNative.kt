@@ -13,6 +13,9 @@ object MpvNative {
         System.loadLibrary("mpvbridge")
     }
     external fun mpvInit(): Boolean
+    external fun mpvCreate(): Boolean
+    external fun mpvSetOption(name: String, value: String): Int
+    external fun mpvInitialize(): Boolean
     external fun mpvAttachSurface(surface: android.view.Surface)
     external fun mpvDetachSurface()
     external fun mpvCommandString(cmd: String): Int
