@@ -13,7 +13,6 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 
@@ -28,7 +27,7 @@ val MpvPlayerState.isIdle: Boolean
 fun rememberMpvPlayer(
     scope: CoroutineScope = rememberCoroutineScope()
 ): MpvPlayer {
-    val player = remember { createMpvPlayer() }
+    val player = remember { createMpv() }
     val state = remember(player, scope) { MpvPlayer(player, scope) }
 
     DisposableEffect(state) {
@@ -42,8 +41,9 @@ fun rememberMpvPlayer(
 
 @Stable
 class MpvPlayer(
-    val player: IMpvPlayer, private val scope: CoroutineScope
+    val player: Mpv, private val scope: CoroutineScope
 ) {
+    internal val renderMode : RenderMode = player.renderMode
     var state by mutableStateOf(MpvPlayerState.Idle)
         private set
 

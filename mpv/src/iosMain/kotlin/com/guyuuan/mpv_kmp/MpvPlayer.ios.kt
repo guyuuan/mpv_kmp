@@ -51,11 +51,11 @@ private fun openGlEsHandle(): COpaquePointer? {
 private var openGlEsFrameworkHandle: COpaquePointer? = null
 
 @OptIn(ExperimentalForeignApi::class)
-private class IosMpvPlayer(
+private class IosMpv(
     config: Map<String, String> = DEFAULT_CONFIG
-) : AbsMpvPlayer(config), IosRenderContextSupport {
+) : AbsMpv(config), IosRenderContextSupport {
     private companion object {
-        val DEFAULT_CONFIG: Map<String, String> = IMpvPlayer.DEFAULT_CONFIG + mapOf(
+        val DEFAULT_CONFIG: Map<String, String> = Mpv.DEFAULT_CONFIG + mapOf(
             "vo" to "libmpv",
             "ao" to "audiounit"
 //            "profile" to "sw-fast",
@@ -86,7 +86,7 @@ private class IosMpvPlayer(
         }
         val r = mpv_initialize(h)
         if (r != 0) {
-            println("IosMpvPlayer: mpv_initialize failed: $r (${mpvError(r)})")
+            println("IosMpv: mpv_initialize failed: $r (${mpvError(r)})")
             mpv_terminate_destroy(h)
             handle = null
             return false
@@ -99,7 +99,7 @@ private class IosMpvPlayer(
         val h = handle ?: return -1
         val result = mpv_set_option_string(h, name, value)
         if (result < 0) {
-            println("IosMpvPlayer: failed to set $name=$value: $result (${mpvError(result)})")
+            println("IosMpv: failed to set $name=$value: $result (${mpvError(result)})")
         }
         return result
     }
@@ -141,7 +141,7 @@ private class IosMpvPlayer(
         observedProperties[name] = observerId
         val result = mpv_observe_property(h, observerId, name, MPV_FORMAT_STRING)
         if (result != 0) {
-            println("IosMpvPlayer: observeProperty failed: $result (${mpvError(result)}), name=$name")
+            println("IosMpv: observeProperty failed: $result (${mpvError(result)}), name=$name")
             if (observedProperties[name] == observerId) {
                 observedProperties.remove(name)
             }
@@ -155,7 +155,7 @@ private class IosMpvPlayer(
         val observerId = observedProperties[name] ?: return
         val result = mpv_unobserve_property(h, observerId)
         if (result < 0) {
-            println("IosMpvPlayer: removePropertyObservation failed: $result (${mpvError(result)}), name=$name")
+            println("IosMpv: removePropertyObservation failed: $result (${mpvError(result)}), name=$name")
             return
         }
         observedProperties.remove(name)
@@ -317,11 +317,11 @@ private class IosMpvPlayer(
             val result = mpv_render_context_create(out.ptr, h, params)
             if (result == 0) {
                 renderContext = out.value
-                println("IosMpvPlayer: OpenGL mpv_render_context_create success")
+                println("IosMpv: OpenGL mpv_render_context_create success")
                 true
             } else {
                 println(
-                    "IosMpvPlayer: OpenGL mpv_render_context_create failed: $result (${
+                    "IosMpv: OpenGL mpv_render_context_create failed: $result (${
                         mpvError(
                             result
                         )
@@ -374,7 +374,7 @@ private class IosMpvPlayer(
             if (result == 0) {
                 mpv_render_context_report_swap(ctx)
             } else {
-                println("IosMpvPlayer: mpv_render_context_render failed: $result (${mpvError(result)})")
+                println("IosMpv: mpv_render_context_render failed: $result (${mpvError(result)})")
             }
             result
         }
@@ -397,4 +397,4 @@ private class IosMpvPlayer(
     }
 }
 
-actual fun createMpvPlayer(): IMpvPlayer = IosMpvPlayer()
+actual fun createMpv(): Mpv = IosMpv()

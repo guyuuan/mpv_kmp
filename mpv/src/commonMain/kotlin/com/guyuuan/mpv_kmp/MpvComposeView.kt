@@ -6,5 +6,6 @@ import androidx.compose.ui.Modifier
 @Composable
 expect fun MpvComposeView(
     modifier: Modifier = Modifier,
-    state: MpvPlayer
+    state: MpvPlayer,
+    overlay: @Composable () -> Unit={}
 )

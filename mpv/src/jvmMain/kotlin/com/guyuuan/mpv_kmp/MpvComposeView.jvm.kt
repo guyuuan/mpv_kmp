@@ -1,63 +1,72 @@
 package com.guyuuan.mpv_kmp
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asComposeImageBitmap
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.skiaCanvas
+import androidx.compose.ui.unit.IntSize
 import com.jogamp.opengl.GLAutoDrawable
 import com.jogamp.opengl.GLCapabilities
 import com.jogamp.opengl.GLEventListener
 import com.jogamp.opengl.GLProfile
-import com.jogamp.opengl.GLRunnable
 import com.jogamp.opengl.awt.GLCanvas
 import com.sun.jna.Pointer
 import org.jetbrains.skia.Bitmap
-import org.jetbrains.skia.Canvas
 import org.jetbrains.skia.ImageInfo
-import org.jetbrains.skiko.SkiaLayer
-import org.jetbrains.skiko.SkikoRenderDelegate
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
+import kotlin.math.roundToInt
 
 @Composable
 actual fun MpvComposeView(
-    modifier: Modifier,
-    state: MpvPlayer
+    modifier: Modifier, state: MpvPlayer, overlay: @Composable () -> Unit
 ) {
-    MpvOpenGLView(modifier, state)
+    when (state.renderMode) {
+        RenderMode.Hardware -> MpvHardwareRenderView(modifier, state, overlay = overlay)
+
+        RenderMode.Software -> MpvSoftwareRenderView(modifier, state, overlay = overlay)
+    }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun MpvOpenGLView(
-    modifier: Modifier,
-    state: MpvPlayer
+private fun MpvHardwareRenderView(
+    modifier: Modifier, state: MpvPlayer, overlay: @Composable () -> Unit
 ) {
     val glCanvas = remember(state.player) {
         createMpvGlCanvas(state)
     }
     DisposableEffect(glCanvas) {
         onDispose {
-            glCanvas.invoke(true, GLRunnable {
+            glCanvas.invoke(true) {
                 val player = state.player
-                if (player is EmbeddedGpuRenderSupport) {
+                if (player is HardwareRenderSupport) {
                     player.freeOpenGlRenderContext()
                 }
                 true
-            })
+            }
             glCanvas.destroy()
         }
     }
-    SwingPanel(
-        modifier = modifier,
-        factory = { glCanvas },
-        update = {
-            it.display()
-        }
-    )
+    Box(modifier = modifier) {
+        SwingPanel(
+            modifier = Modifier.matchParentSize(),
+            factory = { glCanvas },
+            update = { it.display() })
+        overlay()
+    }
 }
 
 private fun createMpvGlCanvas(state: MpvPlayer): GLCanvas {
@@ -75,13 +84,13 @@ private fun createMpvGlCanvas(state: MpvPlayer): GLCanvas {
 
             override fun init(drawable: GLAutoDrawable) {
                 val player = state.player
-                if (player !is EmbeddedGpuRenderSupport) {
+                if (player !is HardwareRenderSupport) {
                     failed = true
                     state.reportRenderError("player does not support embedded GPU rendering")
                     return
                 }
                 try {
-                    if (!player.createOpenGlRenderContext()) {
+                    if (!player.createHardwareRenderContext()) {
                         failed = true
                         state.reportRenderError("failed to create OpenGL render context")
                         return
@@ -111,12 +120,12 @@ private fun createMpvGlCanvas(state: MpvPlayer): GLCanvas {
             override fun display(drawable: GLAutoDrawable) {
                 if (!initialized || failed) return
                 val player = state.player
-                if (player !is EmbeddedGpuRenderSupport) return
+                if (player !is HardwareRenderSupport) return
                 val width = drawable.surfaceWidth
                 val height = drawable.surfaceHeight
                 if (width <= 0 || height <= 0) return
                 try {
-                    player.renderOpenGl(drawable.context.defaultDrawFramebuffer, width, height)
+                    player.render(drawable.context.defaultDrawFramebuffer, width, height)
                 } catch (e: Throwable) {
                     failed = true
                     state.reportRenderError("OpenGL render threw", e)
@@ -124,18 +133,14 @@ private fun createMpvGlCanvas(state: MpvPlayer): GLCanvas {
             }
 
             override fun reshape(
-                drawable: GLAutoDrawable,
-                x: Int,
-                y: Int,
-                width: Int,
-                height: Int
+                drawable: GLAutoDrawable, x: Int, y: Int, width: Int, height: Int
             ) {
                 display(drawable)
             }
 
             override fun dispose(drawable: GLAutoDrawable) {
                 val player = state.player
-                if (player is EmbeddedGpuRenderSupport) {
+                if (player is HardwareRenderSupport) {
                     try {
                         player.freeOpenGlRenderContext()
                     } catch (e: Throwable) {
@@ -159,101 +164,123 @@ private fun selectMpvGlProfile(): GLProfile {
     }
 }
 
-@Composable
-private fun MpvNativeWindowView(
-    modifier: Modifier,
-    state: MpvPlayer
-) {
-    SwingPanel(
-        modifier = modifier,
-        factory = {
-            MpvCanvas().apply {
-                setPlayer(state.player)
-            }
-        },
-        update = {
-            it.setPlayer(state.player)
-        }
-    )
-}
 
 @Composable
-private fun MpvSoftwareView(
-    modifier: Modifier,
-    state: MpvPlayer
+private fun MpvSoftwareRenderView(
+    modifier: Modifier, state: MpvPlayer, overlay: @Composable () -> Unit
 ) {
-    var isInit by remember { mutableStateOf(false) }
-    SwingPanel(
-        modifier = modifier,
-        factory = {
-            SkiaLayer().apply {
-                renderDelegate = object : SkikoRenderDelegate {
-                    private var bitmap: Bitmap? = null
+    val player = state.player
+    val frameBuffer = remember(player) { SoftwareRenderFrameBuffer() }
+    val renderPending = remember(player) { AtomicBoolean(false) }
+    var renderSignal by remember(player) { mutableStateOf(0) }
 
-                    override fun onRender(canvas: Canvas, width: Int, height: Int, nanoTime: Long) {
-                        val player = state.player
-                        if (player is RenderContextSupport) {
-                            if (!isInit) {
-                                println("MpvComposeView: Initializing RenderContext (SW)...")
-                                if (player.createRenderContext()) {
-                                    println("MpvComposeView: RenderContext created successfully.")
-                                    player.setRenderCallback {
-                                        SwingUtilities.invokeLater {
-                                            needRender()
-                                        }
-                                    }
-                                    isInit = true
-                                } else {
-                                    println("MpvComposeView: Failed to create RenderContext.")
-                                }
-                            }
-
-                            if (isInit) {
-                                if (width <= 0 || height <= 0) return
-                                // Reallocate bitmap if size changes
-                                if (bitmap == null || bitmap!!.width != width || bitmap!!.height != height) {
-                                    bitmap?.close()
-                                    bitmap = Bitmap()
-                                    bitmap!!.allocPixels(ImageInfo.makeN32Premul(width, height))
-                                }
-
-                                val b = bitmap!!
-                                val pixelsAddr = b.peekPixels()?.addr
-                                if (pixelsAddr != null) {
-                                    val ptr = Pointer(pixelsAddr)
-                                    player.renderSw(width, height, b.rowBytes, "bgr0", ptr)
-                                    val totalSize = b.rowBytes.toLong() * height.toLong()
-                                    if (totalSize in 1..Int.MAX_VALUE.toLong()) {
-                                        val buf = ptr.getByteBuffer(0, totalSize)
-                                        val visibleRowBytes = width * 4
-                                        var y = 0
-                                        while (y < height) {
-                                            val rowStart = y * b.rowBytes
-                                            var i = rowStart + 3
-                                            val end = rowStart + visibleRowBytes
-                                            while (i < end) {
-                                                buf.put(i, 0xFF.toByte())
-                                                i += 4
-                                            }
-                                            y++
-                                        }
-                                    }
-
-                                    org.jetbrains.skia.Image.makeFromBitmap(b).use { image ->
-                                        canvas.drawImage(image, 0f, 0f)
-                                    }
+    DisposableEffect(player) {
+        val disposed = AtomicBoolean(false)
+        if (player !is SoftwareRenderContextSupport) {
+            state.reportRenderError("player does not support software rendering")
+        } else {
+            try {
+                if (player.createSoftwareRenderContext()) {
+                    player.setRenderCallback {
+                        if (renderPending.compareAndSet(false, true)) {
+                            SwingUtilities.invokeLater {
+                                renderPending.set(false)
+                                if (!disposed.get()) {
+                                    renderSignal++
                                 }
                             }
                         }
                     }
+                    renderSignal++
+                } else {
+                    state.reportRenderError("failed to create software render context")
                 }
-                SwingUtilities.invokeLater {
-                    needRender()
+            } catch (e: Throwable) {
+                state.reportRenderError("software render context initialization threw", e)
+            }
+        }
+        onDispose {
+            disposed.set(true)
+            renderPending.set(false)
+            if (player is SoftwareRenderContextSupport) {
+                try {
+                    player.freeRenderContext()
+                } catch (e: Throwable) {
+                    state.reportRenderError("software render context dispose threw", e)
                 }
             }
-        },
-        update = {
-            it.needRender()
+            frameBuffer.close()
         }
-    )
+    }
+
+    val frame = renderSignal
+    Box(modifier = modifier) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val softwarePlayer = player as? SoftwareRenderContextSupport ?: return@Canvas
+            val width = size.width.roundToInt()
+            val height = size.height.roundToInt()
+            if (width <= 0 || height <= 0) return@Canvas
+
+            try {
+                val (bitmap, imageBitmap) = frameBuffer.ensure(width, height)
+                val pixelsAddr = bitmap.peekPixels()?.addr ?: return@Canvas
+                val ptr = Pointer(pixelsAddr)
+                softwarePlayer.render(width, height, bitmap.rowBytes, "bgr0", ptr)
+                forceOpaqueAlpha(ptr, width, height, bitmap.rowBytes)
+                drawImage(
+                    image = imageBitmap,
+                    dstSize = IntSize(width, height),
+                    filterQuality = FilterQuality.None
+                )
+            } catch (e: Throwable) {
+                state.reportRenderError("software render threw at frame $frame", e)
+            }
+        }
+    }
+}
+
+private class SoftwareRenderFrameBuffer {
+    private var bitmap: Bitmap? = null
+    private var imageBitmap: ImageBitmap? = null
+
+    fun ensure(width: Int, height: Int): Pair<Bitmap, ImageBitmap> {
+        val currentBitmap = bitmap
+        val currentImageBitmap = imageBitmap
+        if (currentBitmap != null && currentImageBitmap != null && currentBitmap.width == width && currentBitmap.height == height) {
+            return currentBitmap to currentImageBitmap
+        }
+
+        currentBitmap?.close()
+        val newBitmap = Bitmap().apply {
+            allocPixels(ImageInfo.makeN32Premul(width, height))
+        }
+        val newImageBitmap = newBitmap.asComposeImageBitmap()
+        bitmap = newBitmap
+        imageBitmap = newImageBitmap
+        return newBitmap to newImageBitmap
+    }
+
+    fun close() {
+        bitmap?.close()
+        bitmap = null
+        imageBitmap = null
+    }
+}
+
+private fun forceOpaqueAlpha(ptr: Pointer, width: Int, height: Int, rowBytes: Int) {
+    val totalSize = rowBytes.toLong() * height.toLong()
+    if (totalSize !in 1..Int.MAX_VALUE.toLong()) return
+    val buf = ptr.getByteBuffer(0, totalSize)
+    val visibleRowBytes = width * 4
+    var y = 0
+    while (y < height) {
+        val rowStart = y * rowBytes
+        var i = rowStart + 3
+        val end = rowStart + visibleRowBytes
+        while (i < end) {
+            buf.put(i, 0xFF.toByte())
+            i += 4
+        }
+        y++
+    }
 }

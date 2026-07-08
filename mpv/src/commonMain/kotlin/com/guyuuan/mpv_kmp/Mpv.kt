@@ -4,26 +4,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlin.concurrent.Volatile
 
 enum class MpvEventType {
-    None, Shutdown, LogMessage, GetPropertyReply, SetPropertyReply,
-    CommandReply, StartFile, EndFile, FileLoaded,
-    TracksChanged, TrackSwitched, Idle, Pause, Unpause,
-    Tick, ScriptInputDispatch, ClientMessage, VideoReconfig,
-    AudioReconfig, MetadataUpdate, Seek, PlaybackRestart, PropertyChange,
-    ChapterChange, QueueOverflow, Hook
+    None, Shutdown, LogMessage, GetPropertyReply, SetPropertyReply, CommandReply, StartFile, EndFile, FileLoaded, TracksChanged, TrackSwitched, Idle, Pause, Unpause, Tick, ScriptInputDispatch, ClientMessage, VideoReconfig, AudioReconfig, MetadataUpdate, Seek, PlaybackRestart, PropertyChange, ChapterChange, QueueOverflow, Hook
 }
 
 data class MpvEvent(
-    val type: MpvEventType,
-    val name: String? = null,
-    val value: String? = null,
-    val error: Int = 0
+    val type: MpvEventType, val name: String? = null, val value: String? = null, val error: Int = 0
 )
 
 data class MpvPlaylistItem(
-    val index: Int,
-    val filename: String,
-    val title: String? = null,
-    val current: Boolean = false
+    val index: Int, val filename: String, val title: String? = null, val current: Boolean = false
 )
 
 data class MpvSubtitleTrack(
@@ -96,19 +85,21 @@ data class MpvAudioDecoderInfo(
 )
 
 data class MpvDecoderInfo(
-    val video: MpvVideoDecoderInfo,
-    val audio: MpvAudioDecoderInfo
+    val video: MpvVideoDecoderInfo, val audio: MpvAudioDecoderInfo
 )
 typealias MpvEventListener = ((MpvEvent) -> Unit)
 
-interface IMpvPlayer {
-    companion object{
-        val DEFAULT_CONFIG = mapOf<String,String>(
+interface Mpv {
+    companion object {
+        val DEFAULT_CONFIG = mapOf<String, String>(
             "vo" to "gpu-next",
             "hwdec" to "auto-copy",
             "sub-margin-y" to "80",
         )
     }
+
+    val renderMode: RenderMode
+        get() = RenderMode.Hardware
     fun initialize(): Boolean
     fun attach(view: Any)
     fun detach()
@@ -119,7 +110,8 @@ interface IMpvPlayer {
     fun getPlaylist(): List<MpvPlaylistItem>
     fun getCurrentSubtitle(): MpvSubtitleTrack? = getSubtitleList().firstOrNull { it.selected }
     fun getSubtitleList(): List<MpvSubtitleTrack> {
-        val count = getProperty(MpvSubtitleProperties.TRACK_LIST_COUNT)?.toIntOrNull() ?: return emptyList()
+        val count =
+            getProperty(MpvSubtitleProperties.TRACK_LIST_COUNT)?.toIntOrNull() ?: return emptyList()
         return (0 until count).mapNotNull { index ->
             if (getProperty("track-list/$index/type") != "sub") return@mapNotNull null
             val id = getProperty("track-list/$index/id")?.toIntOrNull() ?: return@mapNotNull null
@@ -137,9 +129,12 @@ interface IMpvPlayer {
             )
         }
     }
+
     fun setSubtitle(id: Int?): Int = setProperty(MpvSubtitleProperties.SID, id?.toString() ?: "no")
     fun setSubtitle(subtitle: MpvSubtitleTrack): Int = setSubtitle(subtitle.id)
-    fun addExternalSubtitle(uri: String): Int = commandString("sub-add ${mpvCommandArgument(uri)} select")
+    fun addExternalSubtitle(uri: String): Int =
+        commandString("sub-add ${mpvCommandArgument(uri)} select")
+
     fun addExternalSubtitleFile(path: String): Int = addExternalSubtitle(mpvFileUri(path))
     fun removeFromPlaylist(index: Int): Int
     fun playlistNext(): Int
@@ -175,18 +170,18 @@ interface IMpvPlayer {
     )
 
     fun getDecoderInfo(): MpvDecoderInfo = MpvDecoderInfo(
-        video = getVideoDecoderInfo(),
-        audio = getAudioDecoderInfo()
+        video = getVideoDecoderInfo(), audio = getAudioDecoderInfo()
     )
 
     fun terminate()
 }
 
-abstract class AbsMpvPlayer(
+abstract class AbsMpv(
     protected val config: Map<String, String> = emptyMap()
-) : IMpvPlayer {
+) : Mpv {
 
     protected val listeners: MutableList<MpvEventListener> = mutableListOf()
+
     @Volatile
     protected var running = false
 
@@ -207,7 +202,7 @@ abstract class AbsMpvPlayer(
         config.forEach { (name, value) ->
             val result = setConfigOption(name, value)
             if (result < 0) {
-                println("AbsMpvPlayer: failed to set config $name=$value: $result")
+                println("AbsMpv: failed to set config $name=$value: $result")
                 return false
             }
         }
@@ -219,7 +214,7 @@ abstract class AbsMpvPlayer(
     abstract fun startEventLoop()
 }
 
-expect fun createMpvPlayer(): IMpvPlayer
+expect fun createMpv(): Mpv
 
 fun mpvFileUri(path: String): String {
     return if (path.startsWith("file://")) path else "file://$path"

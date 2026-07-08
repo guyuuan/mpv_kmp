@@ -10,6 +10,8 @@ plugins {
 dependencies {
     implementation(project(":example:shared"))
     implementation(compose.desktop.currentOs)
+    implementation(libs.kotlinx.coroutines.swing)
+    implementation(libs.compose.material.iconsExtended)
 }
 
 compose.desktop {

@@ -5,11 +5,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
-private class AndroidMpvPlayer(
+private class AndroidMpv(
     config: Map<String, String> = DEFAULT_CONFIG
-) : AbsMpvPlayer(config) {
+) : AbsMpv(config) {
     private companion object {
-        val DEFAULT_CONFIG: Map<String, String> = IMpvPlayer.DEFAULT_CONFIG+ mapOf(
+        val DEFAULT_CONFIG: Map<String, String> = Mpv.DEFAULT_CONFIG+ mapOf(
             "vo" to "gpu",
             "gpu-context" to "android",
             "gpu-api" to "opengl",
@@ -66,7 +66,7 @@ private class AndroidMpvPlayer(
         // format 1 = MPV_FORMAT_STRING
         val result = MpvNative.mpvObserveProperty(name, observerId, 1)
         if (result < 0) {
-            println("AndroidMpvPlayer: observeProperty failed: $result, name=$name")
+            println("AndroidMpv: observeProperty failed: $result, name=$name")
             if (observedProperties[name] == observerId) {
                 observedProperties.remove(name)
             }
@@ -78,7 +78,7 @@ private class AndroidMpvPlayer(
         val observerId = observedProperties[name] ?: return
         val result = MpvNative.mpvUnobserveProperty(observerId)
         if (result < 0) {
-            println("AndroidMpvPlayer: removePropertyObservation failed: $result, name=$name")
+            println("AndroidMpv: removePropertyObservation failed: $result, name=$name")
             return
         }
         observedProperties.remove(name)
@@ -176,4 +176,4 @@ private class AndroidMpvPlayer(
     }
 }
 
-actual fun createMpvPlayer(): IMpvPlayer = AndroidMpvPlayer()
+actual fun createMpv(): Mpv = AndroidMpv()
