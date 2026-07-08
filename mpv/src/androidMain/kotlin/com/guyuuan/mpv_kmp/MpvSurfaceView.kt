@@ -11,7 +11,7 @@ class MpvSurfaceView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : SurfaceView(context, attrs, defStyleAttr), SurfaceHolder.Callback {
 
-    private var player: IMpvPlayer? = null
+    private var player: Mpv? = null
     private var attachedSurface: android.view.Surface? = null
     private var attachedWidth: Int = 0
     private var attachedHeight: Int = 0
@@ -20,7 +20,7 @@ class MpvSurfaceView @JvmOverloads constructor(
         holder.addCallback(this)
     }
 
-    fun setPlayer(player: IMpvPlayer) {
+    fun setPlayer(player: Mpv) {
         if (this.player != null && this.player !== player) {
             this.player?.detach()
             clearAttachedSurface()

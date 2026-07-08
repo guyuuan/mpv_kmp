@@ -1,6 +1,7 @@
 package com.guyuuan.mpv_kmp.example
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeContent
@@ -19,13 +20,13 @@ import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun App() {
+fun App(overlay:@Composable BoxScope.()-> Unit ={}) {
     MaterialTheme {
         val playerState = rememberMpvPlayer()
-//        val videoUrl =
-//            "https://emby.guyuuan.com:23231/emby/Items/39635/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_39635"
         val videoUrl =
-            "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275"
+            "https://emby.guyuuan.com:23231/emby/Items/39635/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_39635"
+//        val videoUrl =
+//            "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275"
 
         fun playVideo() {
             println("start load video: $videoUrl")
@@ -35,18 +36,19 @@ fun App() {
             println("play result: $play")
         }
 
-        Box(
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            MpvComposeView(
-                modifier = Modifier.fillMaxSize(), state = playerState
-            )
-            BottomBar(
-                modifier = Modifier.align(alignment = Alignment.BottomCenter)
-                    .windowInsetsPadding(insets = WindowInsets.safeContent),
-                playerState = playerState
-            )
-        }
+        MpvComposeView(
+            modifier = Modifier.fillMaxSize(), state = playerState, overlay = {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    overlay()
+                    BottomBar(
+                        modifier = Modifier.align(alignment = Alignment.BottomCenter)
+                            .windowInsetsPadding(insets = WindowInsets.safeContent),
+                        playerState = playerState
+                    )
+                }
+            })
 
         LaunchedEffect(Unit) {
             delay(2000.milliseconds)

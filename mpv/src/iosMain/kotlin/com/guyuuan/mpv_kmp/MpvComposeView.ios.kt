@@ -36,7 +36,8 @@ import kotlinx.cinterop.usePinned
 @Composable
 actual fun MpvComposeView(
     modifier: Modifier,
-    state: MpvPlayer
+    state: MpvPlayer,
+    overlay: @Composable () -> Unit
 ) {
     UIKitView(
         modifier = modifier,

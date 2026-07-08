@@ -7,7 +7,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 @Composable
 actual fun MpvComposeView(
     modifier: Modifier,
-    state: MpvPlayer
+    state: MpvPlayer,
+    overlay: @Composable () -> Unit
 ) {
     AndroidView(
         modifier = modifier,

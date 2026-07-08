@@ -41,6 +41,7 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.material.iconsExtended)
             implementation(projects.mpv)
+            implementation(libs.kotlinx.coroutines.core)
         }
     }
 }

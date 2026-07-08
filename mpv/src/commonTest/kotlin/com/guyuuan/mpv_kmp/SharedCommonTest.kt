@@ -42,7 +42,7 @@ class SharedCommonTest {
 
     @Test
     fun getDecoderInfoMapsMpvProperties() {
-        val player = FakeMpvPlayer(
+        val player = FakeMpv(
             mapOf(
                 MpvDecoderProperties.CURRENT_VIDEO_CODEC to "h264",
                 MpvDecoderProperties.CURRENT_VIDEO_CODEC_DESCRIPTION to "H.264 / AVC",
@@ -84,7 +84,7 @@ class SharedCommonTest {
 
     @Test
     fun getDecoderInfoReturnsNullForMissingProperties() {
-        val info = FakeMpvPlayer(emptyMap()).getDecoderInfo()
+        val info = FakeMpv(emptyMap()).getDecoderInfo()
 
         assertNull(info.video.codec)
         assertNull(info.video.codecDescription)
@@ -102,7 +102,7 @@ class SharedCommonTest {
 
     @Test
     fun getSubtitleListMapsMpvTrackList() {
-        val player = FakeMpvPlayer(
+        val player = FakeMpv(
             mapOf(
                 "track-list/count" to "4",
                 "track-list/0/type" to "video",
@@ -166,7 +166,7 @@ class SharedCommonTest {
 
     @Test
     fun setSubtitleUpdatesMpvSidProperty() {
-        val player = FakeMpvPlayer(emptyMap())
+        val player = FakeMpv(emptyMap())
 
         assertEquals(0, player.setSubtitle(4))
         assertEquals("4", player.setProperties[MpvSubtitleProperties.SID])
@@ -177,7 +177,7 @@ class SharedCommonTest {
 
     @Test
     fun addExternalSubtitleQuotesMpvCommandArgument() {
-        val player = FakeMpvPlayer(emptyMap())
+        val player = FakeMpv(emptyMap())
 
         assertEquals(0, player.addExternalSubtitle("file:///tmp/My \"Sub\".srt"))
 
@@ -189,7 +189,7 @@ class SharedCommonTest {
 
     @Test
     fun absMpvPlayerLoadsConstructorConfig() {
-        val player = FakeMpvPlayer(
+        val player = FakeMpv(
             properties = emptyMap(),
             config = mapOf(
                 "vo" to "libmpv",
@@ -209,7 +209,7 @@ class SharedCommonTest {
 
     @Test
     fun decoderInfoFlowObservesAndRemovesDecoderPropertiesWithCollectors() = runBlocking {
-        val player = FakeMpvPlayer(emptyMap())
+        val player = FakeMpv(emptyMap())
         val playerScope = CoroutineScope(Job())
         val state = MpvPlayer(player, playerScope)
         state.setup()
@@ -234,7 +234,7 @@ class SharedCommonTest {
         val properties = mutableMapOf<String, String?>(
             MpvDecoderProperties.VIDEO_CODEC to "h264"
         )
-        val player = FakeMpvPlayer(properties)
+        val player = FakeMpv(properties)
         val playerScope = CoroutineScope(Job())
         val state = MpvPlayer(player, playerScope)
         val received = mutableListOf<MpvDecoderInfo>()
@@ -274,10 +274,10 @@ class SharedCommonTest {
         fail("Condition was not met")
     }
 
-    private class FakeMpvPlayer(
+    private class FakeMpv(
         private val properties: Map<String, String?>,
         config: Map<String, String> = emptyMap()
-    ) : AbsMpvPlayer(config) {
+    ) : AbsMpv(config) {
         val observedProperties = mutableListOf<String>()
         val removedProperties = mutableListOf<String>()
         val setProperties = mutableMapOf<String, String>()
