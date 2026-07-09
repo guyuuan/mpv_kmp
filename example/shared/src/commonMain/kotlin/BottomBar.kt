@@ -7,14 +7,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Subtitles
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,10 +35,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.guyuuan.mpv_kmp.MpvPlayer
-import com.guyuuan.mpv_kmp.MpvSubtitleTrack
+import com.guyuuan.mpv_kmp.data.MpvAudioTrack
+import com.guyuuan.mpv_kmp.data.MpvSubtitleTrack
+import com.guyuuan.mpv_kmp.data.TrackItem
 import com.guyuuan.mpv_kmp.isIdle
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -76,9 +76,12 @@ fun BottomBar(modifier: Modifier = Modifier, playerState: MpvPlayer) {
         onClickInfo = {
             showDecoderInfo = true
         },
-        getCurrentSubtitle = { playerState.getCurrentSubtitle() },
         getSubtitles = { playerState.getSubtitleList() },
-        setSubtitle = { playerState.setSubtitle(it) })
+        setSubtitle = { playerState.setSubtitle(it) },
+        getAudioTracks = { playerState.getAudioTrackList() },
+        setAudioTrack = { playerState.setAudioTrack(it) },
+    )
+
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -93,7 +96,8 @@ private fun BottomBar(
     onPause: () -> Unit,
     getSubtitles: () -> List<MpvSubtitleTrack>,
     setSubtitle: (MpvSubtitleTrack) -> Unit,
-    getCurrentSubtitle: () -> MpvSubtitleTrack?,
+    getAudioTracks: () -> List<MpvAudioTrack>,
+    setAudioTrack: (MpvAudioTrack) -> Unit,
     onClickInfo: () -> Unit,
 ) {
     CompositionLocalProvider(LocalContentColor provides Color.White) {
@@ -125,9 +129,14 @@ private fun BottomBar(
                 })
                 Text(text = time, fontFamily = FontFamily.Monospace)
                 SubtitleSelector(
-                    getCurrent = getCurrentSubtitle,
-                    getSubtitles = getSubtitles,
-                    setSubtitle = setSubtitle
+                    icon = {
+                        Icon(imageVector = Icons.Default.Subtitles, contentDescription = null)
+                    }, get = getSubtitles, set = setSubtitle
+                )
+                AudioTrackSelector(
+                    icon = {
+                        Icon(imageVector = Icons.Default.Audiotrack, contentDescription = null)
+                    }, get = getAudioTracks, set = setAudioTrack
                 )
                 IconButton(onClick = onClickInfo) {
                     Icon(imageVector = Icons.Default.Info, contentDescription = null)
@@ -140,32 +149,56 @@ private fun BottomBar(
 @Composable
 fun SubtitleSelector(
     modifier: Modifier = Modifier,
-    getSubtitles: () -> List<MpvSubtitleTrack>,
-    setSubtitle: (MpvSubtitleTrack) -> Unit,
-    getCurrent: () -> MpvSubtitleTrack?
+    icon: @Composable () -> Unit = {},
+    get: () -> List<MpvSubtitleTrack>,
+    set: (MpvSubtitleTrack) -> Unit,
+) = DropDownSelector(
+    modifier = modifier,
+    icon = icon,
+    get = get,
+    set = set,
+    title = { (it.title ?: it.language ?: it.externalFilename).toString() })
+
+@Composable
+fun AudioTrackSelector(
+    modifier: Modifier = Modifier,
+    icon: @Composable () -> Unit = {},
+    get: () -> List<MpvAudioTrack>,
+    set: (MpvAudioTrack) -> Unit,
+) = DropDownSelector(
+    modifier = modifier,
+    icon = icon,
+    get = get,
+    set = set,
+    title = { (it.title ?: it.language ?: it.externalFilename).toString() })
+
+@Composable
+fun <T : TrackItem> DropDownSelector(
+    modifier: Modifier = Modifier,
+    icon: @Composable () -> Unit = {},
+    title: (T) -> String,
+    get: () -> List<T>,
+    set: (T) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier) {
-        IconButton(onClick = { expanded = !expanded }) {
-            Icon(imageVector = Icons.Default.Subtitles, contentDescription = null)
-        }
+        IconButton(onClick = { expanded = !expanded }, content = icon)
         DropdownMenu(
             modifier = Modifier.heightIn(max = 150.dp),
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
-            val current = getCurrent()
-            val list = getSubtitles()
-            for (track in list) {
+            val list = get()
+            for (i in list) {
                 DropdownMenuItem(
                     text = {
-                        Text((track.title?:track.language?:track.externalFilename).toString())
+                        Text(title(i))
                     },
                     onClick = {
-                        setSubtitle(track)
+                        set(i)
                         expanded = false
                     },
-                    trailingIcon = if (track.id == current?.id) {
+                    trailingIcon = if (i.selected) {
                         {
                             Icon(
                                 Icons.Default.Check, contentDescription = null

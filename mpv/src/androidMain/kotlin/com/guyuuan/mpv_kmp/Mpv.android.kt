@@ -1,5 +1,7 @@
 package com.guyuuan.mpv_kmp
 
+import com.guyuuan.mpv_kmp.data.MpvEvent
+import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -104,7 +106,7 @@ private class AndroidMpv(
                 index = index,
                 filename = filename,
                 title = getProperty("playlist/$index/title"),
-                current = getProperty("playlist/$index/current") == "yes"
+                selected = getProperty("playlist/$index/selected") == "yes"
             )
         }
     }

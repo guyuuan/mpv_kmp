@@ -14,11 +14,11 @@ actual fun MpvComposeView(
         modifier = modifier,
         factory = { context ->
             MpvSurfaceView(context).apply {
-                setPlayer(state.player)
+                setPlayer(state.mpv)
             }
         },
         update = { view ->
-            view.setPlayer(state.player)
+            view.setPlayer(state.mpv)
         },
         onRelease = { view ->
             view.release()

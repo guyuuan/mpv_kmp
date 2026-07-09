@@ -1,5 +1,12 @@
 package com.guyuuan.mpv_kmp
 
+import com.guyuuan.mpv_kmp.data.MpvAudioDecoderInfo
+import com.guyuuan.mpv_kmp.data.MpvAudioTrack
+import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
+import com.guyuuan.mpv_kmp.data.MpvEvent
+import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
+import com.guyuuan.mpv_kmp.data.MpvSubtitleTrack
+import com.guyuuan.mpv_kmp.data.MpvVideoDecoderInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -23,14 +30,14 @@ class SharedCommonTest {
     fun decoderPropertyConstantsExposeMpvNames() {
         assertEquals(
             listOf(
-                "current-tracks/video/codec",
-                "current-tracks/video/codec-desc",
+                "selected-tracks/video/codec",
+                "selected-tracks/video/codec-desc",
                 "video-codec",
-                "hwdec-current",
+                "hwdec-selected",
                 "video-params",
                 "video-out-params",
-                "current-tracks/audio/codec",
-                "current-tracks/audio/codec-desc",
+                "selected-tracks/audio/codec",
+                "selected-tracks/audio/codec-desc",
                 "audio-codec",
                 "audio-codec-name",
                 "audio-params",
@@ -165,6 +172,66 @@ class SharedCommonTest {
     }
 
     @Test
+    fun getAudioTrackListMapsMpvTrackList() {
+        val player = FakeMpv(
+            mapOf(
+                "track-list/count" to "4",
+                "track-list/0/type" to "video",
+                "track-list/0/id" to "1",
+                "track-list/1/type" to "audio",
+                "track-list/1/id" to "2",
+                "track-list/1/title" to "English Stereo",
+                "track-list/1/lang" to "eng",
+                "track-list/1/selected" to "yes",
+                "track-list/1/external" to "no",
+                "track-list/1/codec" to "aac",
+                "track-list/1/default" to "yes",
+                "track-list/2/type" to "sub",
+                "track-list/2/id" to "3",
+                "track-list/3/type" to "audio",
+                "track-list/3/id" to "4",
+                "track-list/3/title" to "Japanese 5.1",
+                "track-list/3/lang" to "jpn",
+                "track-list/3/selected" to "no",
+                "track-list/3/external" to "yes",
+                "track-list/3/external-filename" to "file:///tmp/movie.jpn.aac",
+                "track-list/3/codec" to "aac",
+                "track-list/3/default" to "false"
+            )
+        )
+
+        val audioTracks = player.getAudioTrackList()
+
+        assertEquals(
+            listOf(
+                MpvAudioTrack(
+                    index = 1,
+                    id = 2,
+                    title = "English Stereo",
+                    language = "eng",
+                    selected = true,
+                    external = false,
+                    codec = "aac",
+                    defaultTrack = true
+                ),
+                MpvAudioTrack(
+                    index = 3,
+                    id = 4,
+                    title = "Japanese 5.1",
+                    language = "jpn",
+                    selected = false,
+                    external = true,
+                    externalFilename = "file:///tmp/movie.jpn.aac",
+                    codec = "aac",
+                    defaultTrack = false
+                )
+            ),
+            audioTracks
+        )
+        assertEquals(audioTracks.first(), player.getCurrentAudioTrack())
+    }
+
+    @Test
     fun setSubtitleUpdatesMpvSidProperty() {
         val player = FakeMpv(emptyMap())
 
@@ -173,6 +240,17 @@ class SharedCommonTest {
 
         assertEquals(0, player.setSubtitle(null))
         assertEquals("no", player.setProperties[MpvSubtitleProperties.SID])
+    }
+
+    @Test
+    fun setAudioTrackUpdatesMpvAidProperty() {
+        val player = FakeMpv(emptyMap())
+
+        assertEquals(0, player.setAudioTrack(4))
+        assertEquals("4", player.setProperties[MpvAudioProperties.AID])
+
+        assertEquals(0, player.setAudioTrack(null))
+        assertEquals("no", player.setProperties[MpvAudioProperties.AID])
     }
 
     @Test

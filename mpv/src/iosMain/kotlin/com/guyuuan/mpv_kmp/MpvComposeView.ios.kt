@@ -42,7 +42,7 @@ actual fun MpvComposeView(
     UIKitView(
         modifier = modifier,
         factory = {
-            val renderPlayer = state.player as? IosRenderContextSupport
+            val renderPlayer = state.mpv as? IosRenderContextSupport
             renderPlayer?.let { IosMpvGlView(it) } ?: UIView().apply {
                 backgroundColor = UIColor.blackColor
             }
@@ -180,7 +180,7 @@ private class IosMpvGlView(
         val success = EAGLContext.setCurrentContext(glContext)
         if (!success && !loggedContextFailure) {
             loggedContextFailure = true
-            println("IosMpvGlView: failed to set EAGLContext current")
+            println("IosMpvGlView: failed to set EAGLContext selected")
         }
         return success
     }

@@ -1,92 +1,15 @@
 package com.guyuuan.mpv_kmp
 
+import com.guyuuan.mpv_kmp.data.MpvAudioDecoderInfo
+import com.guyuuan.mpv_kmp.data.MpvAudioTrack
+import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
+import com.guyuuan.mpv_kmp.data.MpvEvent
+import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
+import com.guyuuan.mpv_kmp.data.MpvSubtitleTrack
+import com.guyuuan.mpv_kmp.data.MpvVideoDecoderInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlin.concurrent.Volatile
 
-enum class MpvEventType {
-    None, Shutdown, LogMessage, GetPropertyReply, SetPropertyReply, CommandReply, StartFile, EndFile, FileLoaded, TracksChanged, TrackSwitched, Idle, Pause, Unpause, Tick, ScriptInputDispatch, ClientMessage, VideoReconfig, AudioReconfig, MetadataUpdate, Seek, PlaybackRestart, PropertyChange, ChapterChange, QueueOverflow, Hook
-}
-
-data class MpvEvent(
-    val type: MpvEventType, val name: String? = null, val value: String? = null, val error: Int = 0
-)
-
-data class MpvPlaylistItem(
-    val index: Int, val filename: String, val title: String? = null, val current: Boolean = false
-)
-
-data class MpvSubtitleTrack(
-    val index: Int,
-    val id: Int,
-    val title: String? = null,
-    val language: String? = null,
-    val selected: Boolean = false,
-    val external: Boolean = false,
-    val externalFilename: String? = null,
-    val codec: String? = null,
-    val defaultTrack: Boolean = false,
-    val forced: Boolean = false
-)
-
-object MpvSubtitleProperties {
-    const val SID = "sid"
-    const val TRACK_LIST_COUNT = "track-list/count"
-}
-
-object MpvDecoderProperties {
-    const val CURRENT_VIDEO_CODEC = "current-tracks/video/codec"
-    const val CURRENT_VIDEO_CODEC_DESCRIPTION = "current-tracks/video/codec-desc"
-    const val VIDEO_CODEC = "video-codec"
-    const val HWDEC_CURRENT = "hwdec-current"
-    const val VIDEO_PARAMS = "video-params"
-    const val VIDEO_OUT_PARAMS = "video-out-params"
-    const val CURRENT_AUDIO_CODEC = "current-tracks/audio/codec"
-    const val CURRENT_AUDIO_CODEC_DESCRIPTION = "current-tracks/audio/codec-desc"
-    const val AUDIO_CODEC = "audio-codec"
-    const val AUDIO_CODEC_NAME = "audio-codec-name"
-    const val AUDIO_PARAMS = "audio-params"
-    const val AUDIO_OUT_PARAMS = "audio-out-params"
-
-    val VIDEO: List<String> = listOf(
-        CURRENT_VIDEO_CODEC,
-        CURRENT_VIDEO_CODEC_DESCRIPTION,
-        VIDEO_CODEC,
-        HWDEC_CURRENT,
-        VIDEO_PARAMS,
-        VIDEO_OUT_PARAMS
-    )
-    val AUDIO: List<String> = listOf(
-        CURRENT_AUDIO_CODEC,
-        CURRENT_AUDIO_CODEC_DESCRIPTION,
-        AUDIO_CODEC,
-        AUDIO_CODEC_NAME,
-        AUDIO_PARAMS,
-        AUDIO_OUT_PARAMS
-    )
-    val ALL: List<String> = VIDEO + AUDIO
-}
-
-data class MpvVideoDecoderInfo(
-    val codec: String?,
-    val codecDescription: String?,
-    val decoderCodec: String?,
-    val hardwareDecoder: String?,
-    val params: String?,
-    val outputParams: String?
-)
-
-data class MpvAudioDecoderInfo(
-    val codec: String?,
-    val codecDescription: String?,
-    val decoderCodec: String?,
-    val decoderCodecName: String?,
-    val params: String?,
-    val outputParams: String?
-)
-
-data class MpvDecoderInfo(
-    val video: MpvVideoDecoderInfo, val audio: MpvAudioDecoderInfo
-)
 typealias MpvEventListener = ((MpvEvent) -> Unit)
 
 interface Mpv {
@@ -132,6 +55,29 @@ interface Mpv {
 
     fun setSubtitle(id: Int?): Int = setProperty(MpvSubtitleProperties.SID, id?.toString() ?: "no")
     fun setSubtitle(subtitle: MpvSubtitleTrack): Int = setSubtitle(subtitle.id)
+    fun getCurrentAudioTrack(): MpvAudioTrack? = getAudioTrackList().firstOrNull { it.selected }
+    fun getAudioTrackList(): List<MpvAudioTrack> {
+        val count =
+            getProperty(MpvAudioProperties.TRACK_LIST_COUNT)?.toIntOrNull() ?: return emptyList()
+        return (0 until count).mapNotNull { index ->
+            if (getProperty("track-list/$index/type") != "audio") return@mapNotNull null
+            val id = getProperty("track-list/$index/id")?.toIntOrNull() ?: return@mapNotNull null
+            MpvAudioTrack(
+                index = index,
+                id = id,
+                title = getProperty("track-list/$index/title"),
+                language = getProperty("track-list/$index/lang"),
+                selected = getProperty("track-list/$index/selected").toMpvBoolean(),
+                external = getProperty("track-list/$index/external").toMpvBoolean(),
+                externalFilename = getProperty("track-list/$index/external-filename"),
+                codec = getProperty("track-list/$index/codec"),
+                defaultTrack = getProperty("track-list/$index/default").toMpvBoolean()
+            )
+        }
+    }
+
+    fun setAudioTrack(id: Int?): Int = setProperty(MpvAudioProperties.AID, id?.toString() ?: "no")
+    fun setAudioTrack(audioTrack: MpvAudioTrack): Int = setAudioTrack(audioTrack.id)
     fun addExternalSubtitle(uri: String): Int =
         commandString("sub-add ${mpvCommandArgument(uri)} select")
 

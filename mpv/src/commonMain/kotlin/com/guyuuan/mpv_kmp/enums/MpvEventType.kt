@@ -1,0 +1,30 @@
+package com.guyuuan.mpv_kmp
+
+enum class MpvEventType {
+    None,
+    Shutdown,
+    LogMessage,
+    GetPropertyReply,
+    SetPropertyReply,
+    CommandReply,
+    StartFile,
+    EndFile,
+    FileLoaded,
+    TracksChanged,
+    TrackSwitched,
+    Idle,
+    Pause,
+    Unpause,
+    Tick,
+    ScriptInputDispatch,
+    ClientMessage,
+    VideoReconfig,
+    AudioReconfig,
+    MetadataUpdate,
+    Seek,
+    PlaybackRestart,
+    PropertyChange,
+    ChapterChange,
+    QueueOverflow,
+    Hook
+}
