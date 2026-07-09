@@ -236,6 +236,7 @@ private fun MpvSoftwareRenderView(
                 state.reportRenderError("software render threw at frame $frame", e)
             }
         }
+        overlay()
     }
 }
 

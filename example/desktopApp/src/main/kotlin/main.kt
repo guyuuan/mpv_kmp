@@ -26,9 +26,9 @@ import org.jetbrains.skiko.FPSCounter
 
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
-    System.setProperty("compose.swing.render.on.graphics", "true")
-    System.setProperty("mpv.kmp.desktop.render", "hardware")
-    System.setProperty("compose.interop.blending", "true")
+//    System.setProperty("compose.swing.render.on.graphics", "true")
+//    System.setProperty("mpv.kmp.desktop.render", "hardware")
+//    System.setProperty("compose.interop.blending", "true")
 
     application {
         Window(
