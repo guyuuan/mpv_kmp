@@ -15,7 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import com.guyuuan.mpv_kmp.MpvDecoderInfo
+import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
 
 @Composable
 fun DecoderInfoDialog(

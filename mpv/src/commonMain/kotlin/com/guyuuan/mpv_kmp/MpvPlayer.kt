@@ -8,6 +8,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
+import com.guyuuan.mpv_kmp.data.MpvEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.SharedFlow
@@ -41,9 +43,8 @@ fun rememberMpvPlayer(
 
 @Stable
 class MpvPlayer(
-    val player: Mpv, private val scope: CoroutineScope
-) {
-    internal val renderMode : RenderMode = player.renderMode
+    val mpv: Mpv, private val scope: CoroutineScope
+) :Mpv by mpv{
     var state by mutableStateOf(MpvPlayerState.Idle)
         private set
 
@@ -63,18 +64,18 @@ class MpvPlayer(
         private set
 
     val decoderInfoFlow: SharedFlow<MpvDecoderInfo> = callbackFlow {
-        MpvDecoderProperties.ALL.forEach { player.observeProperty(it) }
+        MpvDecoderProperties.ALL.forEach { mpv.observeProperty(it) }
         val listener: MpvEventListener = { event ->
             if (event.name in MpvDecoderProperties.ALL) {
-                val info = player.getDecoderInfo()
+                val info = mpv.getDecoderInfo()
                 trySend(info)
             }
         }
-        player.addEventListener(listener)
-        trySend(player.getDecoderInfo())
+        mpv.addEventListener(listener)
+        trySend(mpv.getDecoderInfo())
         awaitClose {
-            player.removeEventListener(listener)
-            MpvDecoderProperties.ALL.forEach { player.removePropertyObservation(it) }
+            mpv.removeEventListener(listener)
+            MpvDecoderProperties.ALL.forEach { mpv.removePropertyObservation(it) }
         }
     }.shareIn(scope, started = SharingStarted.WhileSubscribed())
 
@@ -83,17 +84,17 @@ class MpvPlayer(
     private var stopRequested = false
 
     fun setup() {
-        if (player.initialize()) {
+        if (mpv.initialize()) {
             updateState(MpvPlayerState.Idle)
-            player.setCoroutineScope(scope)
-            player.addEventListener { event ->
+            mpv.setCoroutineScope(scope)
+            mpv.addEventListener { event ->
                 scope.launch {
                     handleEvent(event)
                 }
             }
-            player.observeProperty("pause")
-            player.observeProperty("time-pos")
-            player.observeProperty("duration")
+            mpv.observeProperty("pause")
+            mpv.observeProperty("time-pos")
+            mpv.observeProperty("duration")
         } else {
             updateState(MpvPlayerState.Error)
             println("MpvPlayer: initialize failed")
@@ -186,8 +187,8 @@ class MpvPlayer(
         updateState(MpvPlayerState.Error)
     }
 
-    fun load(url: String): Int {
-        val result = player.load(url)
+   override fun load(uri: String): Int {
+        val result = mpv.load(uri)
         if (result >= 0) {
             hasActiveFile = false
             stopRequested = false
@@ -200,48 +201,52 @@ class MpvPlayer(
         return result
     }
 
-    fun getPlaylist(): List<MpvPlaylistItem> = player.getPlaylist()
 
-    fun getCurrentSubtitle(): MpvSubtitleTrack? = player.getCurrentSubtitle()
 
-    fun getSubtitleList(): List<MpvSubtitleTrack> = player.getSubtitleList()
 
-    fun setSubtitle(id: Int?): Int {
-        val result = player.setSubtitle(id)
+    override fun setSubtitle(id: Int?): Int {
+        val result = mpv.setSubtitle(id)
         if (result < 0) {
             updateState(MpvPlayerState.Error)
         }
         return result
     }
 
-    fun setSubtitle(subtitle: MpvSubtitleTrack): Int = setSubtitle(subtitle.id)
-
-    fun addExternalSubtitle(uri: String): Int {
-        val result = player.addExternalSubtitle(uri)
+    override fun setAudioTrack(id: Int?): Int {
+        val result = mpv.setAudioTrack(id)
         if (result < 0) {
             updateState(MpvPlayerState.Error)
         }
         return result
     }
 
-    fun addExternalSubtitleFile(path: String): Int {
-        val result = player.addExternalSubtitleFile(path)
+
+    override fun addExternalSubtitle(uri: String): Int {
+        val result = mpv.addExternalSubtitle(uri)
         if (result < 0) {
             updateState(MpvPlayerState.Error)
         }
         return result
     }
 
-    fun removeFromPlaylist(index: Int): Int {
-        val result = player.removeFromPlaylist(index)
+    override fun addExternalSubtitleFile(path: String): Int {
+        val result = mpv.addExternalSubtitleFile(path)
         if (result < 0) {
             updateState(MpvPlayerState.Error)
         }
         return result
     }
 
-    fun play(): Int {
-        val result = player.play()
+    override fun removeFromPlaylist(index: Int): Int {
+        val result = mpv.removeFromPlaylist(index)
+        if (result < 0) {
+            updateState(MpvPlayerState.Error)
+        }
+        return result
+    }
+
+    override fun play(): Int {
+        val result = mpv.play()
         if (result >= 0) {
             pauseProperty = false
             if (hasActiveFile) {
@@ -253,8 +258,8 @@ class MpvPlayer(
         return result
     }
 
-    fun pause(): Int {
-        val result = player.pause()
+    override fun pause(): Int {
+        val result = mpv.pause()
         if (result >= 0) {
             pauseProperty = true
             if (hasActiveFile) {
@@ -270,8 +275,8 @@ class MpvPlayer(
         if (isPaused) play() else pause()
     }
 
-    fun stop(): Int {
-        val result = player.stop()
+    override fun stop(): Int {
+        val result = mpv.stop()
         if (result >= 0) {
             hasActiveFile = false
             stopRequested = true
@@ -284,23 +289,18 @@ class MpvPlayer(
     }
 
     fun seek(position: Double): Int {
-        val result = player.seekTo(position)
+        val result = mpv.seekTo(position)
         if (result < 0) {
             updateState(MpvPlayerState.Error)
         }
         return result
     }
 
-    fun getVideoDecoderInfo(): MpvVideoDecoderInfo = player.getVideoDecoderInfo()
-
-    fun getAudioDecoderInfo(): MpvAudioDecoderInfo = player.getAudioDecoderInfo()
-
-    fun getDecoderInfo(): MpvDecoderInfo = player.getDecoderInfo()
 
     fun dispose() {
         hasActiveFile = false
         stopRequested = false
         updateState(MpvPlayerState.Disposed)
-        player.terminate()
+        mpv.terminate()
     }
 }

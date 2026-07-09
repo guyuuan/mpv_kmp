@@ -14,8 +14,6 @@ import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.skiaCanvas
 import androidx.compose.ui.unit.IntSize
 import com.jogamp.opengl.GLAutoDrawable
 import com.jogamp.opengl.GLCapabilities
@@ -45,13 +43,13 @@ actual fun MpvComposeView(
 private fun MpvHardwareRenderView(
     modifier: Modifier, state: MpvPlayer, overlay: @Composable () -> Unit
 ) {
-    val glCanvas = remember(state.player) {
+    val glCanvas = remember(state.mpv) {
         createMpvGlCanvas(state)
     }
     DisposableEffect(glCanvas) {
         onDispose {
             glCanvas.invoke(true) {
-                val player = state.player
+                val player = state.mpv
                 if (player is HardwareRenderSupport) {
                     player.freeOpenGlRenderContext()
                 }
@@ -83,10 +81,10 @@ private fun createMpvGlCanvas(state: MpvPlayer): GLCanvas {
             private val renderPending = AtomicBoolean(false)
 
             override fun init(drawable: GLAutoDrawable) {
-                val player = state.player
+                val player = state.mpv
                 if (player !is HardwareRenderSupport) {
                     failed = true
-                    state.reportRenderError("player does not support embedded GPU rendering")
+                    state.reportRenderError("mpv does not support embedded GPU rendering")
                     return
                 }
                 try {
@@ -119,7 +117,7 @@ private fun createMpvGlCanvas(state: MpvPlayer): GLCanvas {
 
             override fun display(drawable: GLAutoDrawable) {
                 if (!initialized || failed) return
-                val player = state.player
+                val player = state.mpv
                 if (player !is HardwareRenderSupport) return
                 val width = drawable.surfaceWidth
                 val height = drawable.surfaceHeight
@@ -139,7 +137,7 @@ private fun createMpvGlCanvas(state: MpvPlayer): GLCanvas {
             }
 
             override fun dispose(drawable: GLAutoDrawable) {
-                val player = state.player
+                val player = state.mpv
                 if (player is HardwareRenderSupport) {
                     try {
                         player.freeOpenGlRenderContext()
@@ -169,7 +167,7 @@ private fun selectMpvGlProfile(): GLProfile {
 private fun MpvSoftwareRenderView(
     modifier: Modifier, state: MpvPlayer, overlay: @Composable () -> Unit
 ) {
-    val player = state.player
+    val player = state.mpv
     val frameBuffer = remember(player) { SoftwareRenderFrameBuffer() }
     val renderPending = remember(player) { AtomicBoolean(false) }
     var renderSignal by remember(player) { mutableStateOf(0) }
@@ -177,7 +175,7 @@ private fun MpvSoftwareRenderView(
     DisposableEffect(player) {
         val disposed = AtomicBoolean(false)
         if (player !is SoftwareRenderContextSupport) {
-            state.reportRenderError("player does not support software rendering")
+            state.reportRenderError("mpv does not support software rendering")
         } else {
             try {
                 if (player.createSoftwareRenderContext()) {

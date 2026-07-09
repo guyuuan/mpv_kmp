@@ -2,6 +2,8 @@ package com.guyuuan.mpv_kmp
 
 import cnames.structs.mpv_handle
 import cnames.structs.mpv_render_context
+import com.guyuuan.mpv_kmp.data.MpvEvent
+import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import com.guyuuan.mpv_kmp.mpv.*
 import kotlinx.cinterop.*
 import kotlinx.coroutines.CoroutineScope
@@ -203,7 +205,7 @@ private class IosMpv(
                 index = index,
                 filename = filename,
                 title = getProperty("playlist/$index/title"),
-                current = getProperty("playlist/$index/current") == "yes"
+                selected = getProperty("playlist/$index/selected") == "yes"
             )
         }
     }
