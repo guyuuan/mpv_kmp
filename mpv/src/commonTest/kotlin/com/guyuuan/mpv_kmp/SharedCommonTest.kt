@@ -7,6 +7,10 @@ import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import com.guyuuan.mpv_kmp.data.MpvSubtitleTrack
 import com.guyuuan.mpv_kmp.data.MpvVideoDecoderInfo
+import com.guyuuan.mpv_kmp.props.MpvAudioProperties
+import com.guyuuan.mpv_kmp.props.MpvDecoderProperties
+import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
+import com.guyuuan.mpv_kmp.props.MpvSubtitleProperties
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -44,6 +48,14 @@ class SharedCommonTest {
                 "audio-out-params"
             ),
             MpvDecoderProperties.ALL
+        )
+    }
+
+    @Test
+    fun playbackPropertyConstantsExposeMpvNames() {
+        assertEquals(
+            listOf("pause", "time-pos", "duration"),
+            MpvPlaybackProperties.ALL
         )
     }
 
@@ -254,6 +266,14 @@ class SharedCommonTest {
     }
 
     @Test
+    fun setVolumeUpdatesMpvVolumeProperty() {
+        val player = FakeMpv(emptyMap())
+
+        assertEquals(0, player.setVolume(42.5))
+        assertEquals("42.5", player.setProperties[MpvAudioProperties.VOLUME])
+    }
+
+    @Test
     fun mpvCommandArgumentEscapesQuotes() {
         assertEquals(
             "\"file:///tmp/My \\\"Sub\\\".srt\"",
@@ -406,6 +426,8 @@ class SharedCommonTest {
         override fun play(): Int = 0
         override fun pause(): Int = 0
         override fun stop(): Int = 0
+        override fun setVolume(volume: Double): Int =
+            setProperty(MpvAudioProperties.VOLUME, volume.toString())
         override fun setProperty(name: String, value: String): Int {
             setProperties[name] = value
             return 0

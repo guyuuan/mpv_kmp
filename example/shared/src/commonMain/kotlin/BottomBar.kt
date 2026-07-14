@@ -8,12 +8,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.SurroundSound
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -68,6 +72,8 @@ fun BottomBar(modifier: Modifier = Modifier, playerState: MpvPlayer) {
         isPlaying = isPlaying,
         progress = progress,
         time = durationString,
+        volume = playerState.volume,
+        onVolumeChange = {playerState.setVolume(it.toDouble())},
         onSeek = {
             playerState.seek(it * playerState.duration)
         },
@@ -90,7 +96,9 @@ private fun BottomBar(
     modifier: Modifier = Modifier,
     isPlaying: Boolean,
     progress: Float,
+    volume: Float,
     time: String,
+    onVolumeChange:(Float)->Unit,
     onSeek: (Float) -> Unit,
     onPlay: () -> Unit,
     onPause: () -> Unit,
@@ -128,6 +136,7 @@ private fun BottomBar(
                     )
                 })
                 Text(text = time, fontFamily = FontFamily.Monospace)
+                AudioVolumeSlider(volume = volume,onValueChange = onVolumeChange)
                 SubtitleSelector(
                     icon = {
                         Icon(imageVector = Icons.Default.Subtitles, contentDescription = null)
@@ -142,6 +151,29 @@ private fun BottomBar(
                     Icon(imageVector = Icons.Default.Info, contentDescription = null)
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AudioVolumeSlider(modifier: Modifier = Modifier,volume: Float,onValueChange:(Float)->Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        IconButton(onClick = { expanded = !expanded }, content = {
+            Icon(imageVector = Icons.AutoMirrored.Filled.VolumeUp,contentDescription = null)
+        })
+        DropdownMenu(
+            modifier = Modifier.heightIn(max = 150.dp),
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            Slider(
+                modifier = Modifier.rotate(-90f),
+                value = volume,
+                onValueChange = onValueChange,
+                valueRange = 0f..100f,
+            )
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.guyuuan.mpv_kmp
 
+import androidx.annotation.FloatRange
 import com.guyuuan.mpv_kmp.data.MpvAudioDecoderInfo
 import com.guyuuan.mpv_kmp.data.MpvAudioTrack
 import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
@@ -7,6 +8,9 @@ import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import com.guyuuan.mpv_kmp.data.MpvSubtitleTrack
 import com.guyuuan.mpv_kmp.data.MpvVideoDecoderInfo
+import com.guyuuan.mpv_kmp.props.MpvAudioProperties
+import com.guyuuan.mpv_kmp.props.MpvDecoderProperties
+import com.guyuuan.mpv_kmp.props.MpvSubtitleProperties
 import kotlinx.coroutines.CoroutineScope
 import kotlin.concurrent.Volatile
 
@@ -78,6 +82,7 @@ interface Mpv {
 
     fun setAudioTrack(id: Int?): Int = setProperty(MpvAudioProperties.AID, id?.toString() ?: "no")
     fun setAudioTrack(audioTrack: MpvAudioTrack): Int = setAudioTrack(audioTrack.id)
+    fun setVolume(@FloatRange(from = 0.0, to = 100.0) volume: Double): Int
     fun addExternalSubtitle(uri: String): Int
     fun addExternalSubtitleFile(path: String): Int = addExternalSubtitle(mpvFileUri(path))
     fun removeFromPlaylist(index: Int): Int

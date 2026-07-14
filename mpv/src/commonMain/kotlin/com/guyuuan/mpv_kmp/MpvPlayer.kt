@@ -10,6 +10,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
 import com.guyuuan.mpv_kmp.data.MpvEvent
+import com.guyuuan.mpv_kmp.props.MpvAudioProperties
+import com.guyuuan.mpv_kmp.props.MpvDecoderProperties
+import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.SharedFlow
@@ -63,6 +66,9 @@ class MpvPlayer(
     var duration by mutableStateOf(0.0)
         private set
 
+    var volume by mutableStateOf(0f)
+        private set
+
     val decoderInfoFlow: SharedFlow<MpvDecoderInfo> = callbackFlow {
         MpvDecoderProperties.ALL.forEach { mpv.observeProperty(it) }
         val listener: MpvEventListener = { event ->
@@ -92,9 +98,8 @@ class MpvPlayer(
                     handleEvent(event)
                 }
             }
-            mpv.observeProperty("pause")
-            mpv.observeProperty("time-pos")
-            mpv.observeProperty("duration")
+            mpv.observeProperty(MpvAudioProperties.VOLUME)
+            MpvPlaybackProperties.ALL.forEach { mpv.observeProperty(it) }
         } else {
             updateState(MpvPlayerState.Error)
             println("MpvPlayer: initialize failed")
@@ -112,9 +117,12 @@ class MpvPlayer(
         when (event.type) {
             MpvEventType.PropertyChange -> {
                 when (event.name) {
-                    "pause" -> handlePauseProperty(event.value)
-                    "time-pos" -> timePos = event.value?.toDoubleOrNull() ?: 0.0
-                    "duration" -> duration = event.value?.toDoubleOrNull() ?: 0.0
+                    MpvPlaybackProperties.PAUSE -> handlePauseProperty(event.value)
+                    MpvPlaybackProperties.TIME_POSITION ->
+                        timePos = event.value?.toDoubleOrNull() ?: 0.0
+                    MpvPlaybackProperties.DURATION ->
+                        duration = event.value?.toDoubleOrNull() ?: 0.0
+                    MpvAudioProperties.VOLUME -> volume = event.value?.toFloatOrNull() ?: 0f
                 }
             }
 
