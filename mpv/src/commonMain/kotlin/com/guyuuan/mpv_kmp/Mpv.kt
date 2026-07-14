@@ -78,9 +78,7 @@ interface Mpv {
 
     fun setAudioTrack(id: Int?): Int = setProperty(MpvAudioProperties.AID, id?.toString() ?: "no")
     fun setAudioTrack(audioTrack: MpvAudioTrack): Int = setAudioTrack(audioTrack.id)
-    fun addExternalSubtitle(uri: String): Int =
-        commandString("sub-add ${mpvCommandArgument(uri)} select")
-
+    fun addExternalSubtitle(uri: String): Int
     fun addExternalSubtitleFile(path: String): Int = addExternalSubtitle(mpvFileUri(path))
     fun removeFromPlaylist(index: Int): Int
     fun playlistNext(): Int

@@ -50,6 +50,9 @@ private class AndroidMpv(
     override fun commandString(cmd: String): Int = MpvNative.mpvCommandString(cmd)
     override fun load(uri: String): Int = commandString("loadfile \"$uri\"")
     override fun addToPlaylist(uri: String): Int = commandString("loadfile \"$uri\" append")
+    override fun addExternalSubtitle(uri: String): Int =
+        commandString("sub-add ${mpvCommandArgument(uri)} select")
+
     override fun getPlaylist(): List<MpvPlaylistItem> = readPlaylist()
     override fun removeFromPlaylist(index: Int): Int = commandString("playlist-remove $index")
     override fun playlistNext(): Int = commandString("playlist-next")
