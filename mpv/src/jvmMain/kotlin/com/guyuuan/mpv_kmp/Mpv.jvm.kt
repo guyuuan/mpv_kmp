@@ -13,6 +13,8 @@ import com.guyuuan.mpv_kmp.jni.mpv_opengl_init_params
 import com.guyuuan.mpv_kmp.jni.mpv_render_param
 import com.guyuuan.mpv_kmp.jni.mpv_render_update_fn
 import com.guyuuan.mpv_kmp.jni.nativeTrace
+import com.guyuuan.mpv_kmp.props.MpvAudioProperties
+import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
 import com.jogamp.opengl.GL
 import com.jogamp.opengl.GLContext
 import com.sun.jna.Native
@@ -249,15 +251,19 @@ internal class JvmMpv(
     }
 
     override fun play(): Int {
-        return setProperty("pause", "no")
+        return setProperty(MpvPlaybackProperties.PAUSE, "no")
     }
 
     override fun pause(): Int {
-        return setProperty("pause", "yes")
+        return setProperty(MpvPlaybackProperties.PAUSE, "yes")
     }
 
     override fun stop(): Int {
         return command("stop")
+    }
+
+    override fun setVolume(volume: Double): Int {
+        return setProperty(MpvAudioProperties.VOLUME, volume.toString())
     }
 
     private fun command(vararg args: String): Int {

@@ -1,4 +1,4 @@
-package com.guyuuan.mpv_kmp
+package com.guyuuan.mpv_kmp.props
 
 object MpvSubtitleProperties {
     const val SID = "sid"

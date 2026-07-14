@@ -5,6 +5,8 @@ import cnames.structs.mpv_render_context
 import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import com.guyuuan.mpv_kmp.mpv.*
+import com.guyuuan.mpv_kmp.props.MpvAudioProperties
+import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
 import kotlinx.cinterop.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -176,15 +178,19 @@ private class IosMpv(
     }
 
     override fun play(): Int {
-        return setProperty("pause", "no")
+        return setProperty(MpvPlaybackProperties.PAUSE, "no")
     }
 
     override fun pause(): Int {
-        return setProperty("pause", "yes")
+        return setProperty(MpvPlaybackProperties.PAUSE, "yes")
     }
 
     override fun stop(): Int {
         return commandString("stop")
+    }
+
+    override fun setVolume(volume: Double): Int {
+        return setProperty(MpvAudioProperties.VOLUME, volume.toString())
     }
 
     override fun setProperty(name: String, value: String): Int {

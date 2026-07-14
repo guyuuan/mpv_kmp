@@ -2,6 +2,8 @@ package com.guyuuan.mpv_kmp
 
 import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
+import com.guyuuan.mpv_kmp.props.MpvAudioProperties
+import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -96,9 +98,11 @@ private class AndroidMpv(
         }
         return observerId
     }
-    override fun play(): Int = setProperty("pause", "no")
-    override fun pause(): Int = setProperty("pause", "yes")
+    override fun play(): Int = setProperty(MpvPlaybackProperties.PAUSE, "no")
+    override fun pause(): Int = setProperty(MpvPlaybackProperties.PAUSE, "yes")
     override fun stop(): Int = commandString("stop")
+    override fun setVolume(volume: Double): Int =
+        setProperty(MpvAudioProperties.VOLUME, volume.toString())
     override fun setProperty(name: String, value: String): Int = MpvNative.mpvSetProperty(name, value)
     override fun getProperty(name: String): String? = MpvNative.mpvGetProperty(name)
     private fun readPlaylist(): List<MpvPlaylistItem> {

@@ -1,4 +1,4 @@
-package com.guyuuan.mpv_kmp
+package com.guyuuan.mpv_kmp.props
 
 object MpvDecoderProperties {
     const val CURRENT_VIDEO_CODEC = "selected-tracks/video/codec"
