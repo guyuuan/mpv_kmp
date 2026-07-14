@@ -254,15 +254,20 @@ class SharedCommonTest {
     }
 
     @Test
-    fun addExternalSubtitleQuotesMpvCommandArgument() {
+    fun mpvCommandArgumentEscapesQuotes() {
+        assertEquals(
+            "\"file:///tmp/My \\\"Sub\\\".srt\"",
+            mpvCommandArgument("file:///tmp/My \"Sub\".srt")
+        )
+    }
+
+    @Test
+    fun addExternalSubtitleFileConvertsPathToFileUri() {
         val player = FakeMpv(emptyMap())
 
-        assertEquals(0, player.addExternalSubtitle("file:///tmp/My \"Sub\".srt"))
+        assertEquals(0, player.addExternalSubtitleFile("/tmp/My Sub.srt"))
 
-        assertEquals(
-            "sub-add \"file:///tmp/My \\\"Sub\\\".srt\" select",
-            player.commands.single()
-        )
+        assertEquals(listOf("file:///tmp/My Sub.srt"), player.externalSubtitleUris)
     }
 
     @Test
@@ -361,6 +366,7 @@ class SharedCommonTest {
         val setProperties = mutableMapOf<String, String>()
         val commands = mutableListOf<String>()
         val configOptions = mutableListOf<Pair<String, String>>()
+        val externalSubtitleUris = mutableListOf<String>()
 
         fun emitEvent(event: MpvEvent) {
             listeners.forEach { it(event) }
@@ -379,6 +385,10 @@ class SharedCommonTest {
         }
         override fun load(uri: String): Int = 0
         override fun addToPlaylist(uri: String): Int = 0
+        override fun addExternalSubtitle(uri: String): Int {
+            externalSubtitleUris += uri
+            return 0
+        }
         override fun getPlaylist(): List<MpvPlaylistItem> = emptyList()
         override fun removeFromPlaylist(index: Int): Int = 0
         override fun playlistNext(): Int = 0
