@@ -69,6 +69,9 @@ class MpvPlayer(
     var volume by mutableStateOf(0f)
         private set
 
+    var speed by mutableStateOf(1f)
+        private set
+
     val decoderInfoFlow: SharedFlow<MpvDecoderInfo> = callbackFlow {
         MpvDecoderProperties.ALL.forEach { mpv.observeProperty(it) }
         val listener: MpvEventListener = { event ->
@@ -118,6 +121,7 @@ class MpvPlayer(
             MpvEventType.PropertyChange -> {
                 when (event.name) {
                     MpvPlaybackProperties.PAUSE -> handlePauseProperty(event.value)
+                    MpvPlaybackProperties.SPEED -> speed = event.value?.toFloatOrNull()?:1f
                     MpvPlaybackProperties.TIME_POSITION ->
                         timePos = event.value?.toDoubleOrNull() ?: 0.0
                     MpvPlaybackProperties.DURATION ->

@@ -274,6 +274,24 @@ class SharedCommonTest {
     }
 
     @Test
+    fun setSpeedUpdatesMpvSpeedProperty() {
+        val player = FakeMpv(emptyMap())
+
+        assertEquals(0, player.setSpeed(1.5f))
+        assertEquals("1.5", player.setProperties[MpvPlaybackProperties.SPEED])
+    }
+
+    @Test
+    fun getSpeedMapsMpvSpeedProperty() {
+        assertEquals(
+            1.5f,
+            FakeMpv(mapOf(MpvPlaybackProperties.SPEED to "1.5")).getSpeed()
+        )
+        assertNull(FakeMpv(emptyMap()).getSpeed())
+        assertNull(FakeMpv(mapOf(MpvPlaybackProperties.SPEED to "invalid")).getSpeed())
+    }
+
+    @Test
     fun mpvCommandArgumentEscapesQuotes() {
         assertEquals(
             "\"file:///tmp/My \\\"Sub\\\".srt\"",

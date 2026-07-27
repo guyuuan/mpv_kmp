@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -13,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.guyuuan.mpv_kmp.MpvComposeView
 import com.guyuuan.mpv_kmp.rememberMpvPlayer
 import kotlinx.coroutines.delay
@@ -20,7 +22,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun App(overlay:@Composable BoxScope.()-> Unit ={}) {
+fun App(overlay: @Composable BoxScope.() -> Unit = {}) {
     MaterialTheme {
         val playerState = rememberMpvPlayer()
         val videoUrl =
@@ -42,6 +44,12 @@ fun App(overlay:@Composable BoxScope.()-> Unit ={}) {
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     overlay()
+                    PlaySpeed(
+                        modifier = Modifier.align(alignment = Alignment.CenterEnd).padding(end =16.dp),
+                        value = playerState.speed
+                    ) {
+                        playerState.setSpeed(it)
+                    }
                     BottomBar(
                         modifier = Modifier.align(alignment = Alignment.BottomCenter)
                             .windowInsetsPadding(insets = WindowInsets.safeContent),
