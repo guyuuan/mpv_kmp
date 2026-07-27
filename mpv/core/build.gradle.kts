@@ -83,7 +83,7 @@ kotlin {
             implementation(libs.kotlin.test)
         }
         androidMain.dependencies {
-            implementation(project(":mpv:androidNative"))
+            implementation(projects.mpv.core.androidNative)
         }
         jvmMain.dependencies {
             implementation(libs.jna)

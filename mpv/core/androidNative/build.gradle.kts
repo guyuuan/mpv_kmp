@@ -9,7 +9,7 @@ val androidMpvLibs = listOf(
     "x86_64" to "android-x86_64",
 )
 val androidNdkVersion = "29.0.14206865"
-val generatedAndroidMpvJniLibsDir = layout.buildDirectory.dir("generated/androidMpvJniLibs").get().asFile
+val generatedAndroidMpvJniLibsDir = layout.projectDirectory.dir("libs").asFile
 
 val copyAndroidMpvJniLibs by tasks.registering(Sync::class) {
     description = "copy so to libs"
