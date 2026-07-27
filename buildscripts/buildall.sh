@@ -568,7 +568,7 @@ copy_to_resources () {
                 arm64-simulator|simulator-arm64|x86_64) native_platform=iphonesimulator ;;
                 *) return 0 ;;
             esac
-            local dst="$PWD/../mpv/src/iosMain/nativeLibs/$native_platform"
+            local dst="$PWD/../mpv/core/src/iosMain/nativeLibs/$native_platform"
             mkdir -p "$dst"
             rm -f "$dst"/*.dylib
             for lib in "$src"/*.dylib; do
@@ -584,7 +584,7 @@ copy_to_resources () {
                 linux) os_id=linux ;;
                 windows) os_id=windows ;;
             esac
-            local res_base="$PWD/../mpv/src/jvmMain/resources"
+            local res_base="$PWD/../mpv/core/src/jvmMain/resources"
             mkdir -p "$res_base"
             if [ "$platform" = "macos" ] && [ "$arch" = "universal" ]; then
                 local src="$PWD/prefix/macos-universal/lib"
