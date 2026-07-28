@@ -1,6 +1,7 @@
 package com.guyuuan.mpv_kmp.service
 
 import android.net.Uri
+import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -13,25 +14,42 @@ import androidx.media3.common.util.UnstableApi
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-/** Media3 [Player] adapter whose state and commands are backed by a [PlaybackCoordinator]. */
+/** Media3 [Player] adapter driven by platform integration state and media command callbacks. */
 @UnstableApi
 class MpvMedia3Player(
-    private val coordinator: PlaybackCoordinator,
+    private val commandHandler: MediaCommandHandler,
     looper: Looper = Looper.getMainLooper()
 ) : SimpleBasePlayer(looper) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var latestSnapshot = coordinator.snapshot.value
-    private val observationJob: Job = scope.launch {
-        coordinator.snapshot.collectLatest { snapshot ->
+    private val coordinator = commandHandler as? PlaybackCoordinator
+    private val playerDispatcher =
+        Handler(looper).asCoroutineDispatcher("MpvMedia3Player").immediate
+    private val scope = CoroutineScope(SupervisorJob() + playerDispatcher)
+    private var latestSnapshot = coordinator?.snapshot?.value ?: PlaybackSnapshot()
+
+    internal fun updateMetadata(metadata: PlaybackMetadata?) {
+        scope.launch {
+            if (latestSnapshot.metadata == metadata) return@launch
+            latestSnapshot = latestSnapshot.copy(metadata = metadata)
+            invalidateState()
+        }
+    }
+
+    internal fun updatePlaybackState(snapshot: PlaybackSnapshot) {
+        scope.launch {
+            if (latestSnapshot == snapshot) return@launch
             latestSnapshot = snapshot
             invalidateState()
+        }
+    }
+
+    internal fun releaseFromIntegration() {
+        scope.launch {
+            release()
         }
     }
 
@@ -61,7 +79,7 @@ class MpvMedia3Player(
             )
         }
 
-        val queue = coordinator.queueItems.ifEmpty {
+        val queue = coordinator?.queueItems.orEmpty().ifEmpty {
             snapshot.metadata?.let(::listOf).orEmpty()
         }
         if (queue.isNotEmpty()) {
@@ -126,6 +144,12 @@ class MpvMedia3Player(
         startIndex: Int,
         startPositionMs: Long
     ): ListenableFuture<*> {
+        val coordinator = coordinator
+            ?: return Futures.immediateFailedFuture<Void>(
+                UnsupportedOperationException(
+                    "Setting Media3 items requires a PlaybackCoordinator command handler"
+                )
+            )
         if (mediaItems.isEmpty()) return Futures.immediateVoidFuture()
         val selectedIndex = if (startIndex == C.INDEX_UNSET) 0 else startIndex
         if (selectedIndex !in mediaItems.indices) {
@@ -150,14 +174,19 @@ class MpvMedia3Player(
     }
 
     override fun handleRelease(): ListenableFuture<*> {
-        observationJob.cancel()
         scope.cancel()
-        coordinator.close()
         return Futures.immediateVoidFuture()
     }
 
-    private fun execute(command: MediaCommand): ListenableFuture<*> =
-        resultFuture(coordinator.execute(command))
+    private fun execute(command: MediaCommand): ListenableFuture<*> {
+        val coordinator = coordinator
+        if (coordinator != null) return resultFuture(coordinator.execute(command))
+
+        return runCatching { commandHandler.handle(command) }.fold(
+            onSuccess = { Futures.immediateVoidFuture() },
+            onFailure = { Futures.immediateFailedFuture<Void>(it) }
+        )
+    }
 }
 
 @UnstableApi

@@ -6,7 +6,11 @@ import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.props.MpvAudioProperties
 import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,12 +25,12 @@ import kotlinx.coroutines.launch
  * composition.
  */
 class PlaybackCoordinator(
-    private val scope: CoroutineScope,
     mpv: Mpv = Mpv(),
     private val mediaIntegration: PlatformMediaIntegration = NoopPlatformMediaIntegration,
     private val stateStore: PlaybackStateStore? = null,
     availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS
 ) : MediaCommandHandler {
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val player: Mpv = mpv
 
     private val mutableSnapshot = MutableStateFlow(
@@ -81,9 +85,7 @@ class PlaybackCoordinator(
 
     /** Replaces the libmpv playlist and its semantic metadata in one operation. */
     fun setQueue(
-        items: List<PlaybackMetadata>,
-        currentIndex: Int = 0,
-        playWhenReady: Boolean = true
+        items: List<PlaybackMetadata>, currentIndex: Int = 0, playWhenReady: Boolean = true
     ): Int {
         ensureUsable()
         require(items.isNotEmpty()) { "Playback queue must not be empty" }
@@ -97,7 +99,8 @@ class PlaybackCoordinator(
             result = result.firstErrorOr(player.addToPlaylist(item.uri))
         }
         if (currentIndex != 0) {
-            result = result.firstErrorOr(player.setProperty(PLAYLIST_POSITION, currentIndex.toString()))
+            result =
+                result.firstErrorOr(player.setProperty(PLAYLIST_POSITION, currentIndex.toString()))
         }
         if (playWhenReady) {
             result = result.firstErrorOr(player.play())
@@ -159,15 +162,19 @@ class PlaybackCoordinator(
             MediaCommand.TogglePlayPause -> {
                 if (snapshot.value.playWhenReady) player.pause() else player.play()
             }
+
             MediaCommand.Stop -> {
                 stopRequested = true
                 player.stop()
             }
+
             is MediaCommand.SeekTo -> player.seekTo(command.positionMillis / MILLIS_PER_SECOND)
             is MediaCommand.SeekBy -> {
-                val position = (snapshot.value.positionMillis + command.offsetMillis).coerceAtLeast(0)
+                val position =
+                    (snapshot.value.positionMillis + command.offsetMillis).coerceAtLeast(0)
                 player.seekTo(position / MILLIS_PER_SECOND)
             }
+
             MediaCommand.Next -> player.playlistNext()
             MediaCommand.Previous -> player.playlistPrev()
             is MediaCommand.SetSpeed -> player.setSpeed(command.speed)
@@ -179,8 +186,8 @@ class PlaybackCoordinator(
         if (result >= 0) {
             val playWhenReady = when (command) {
                 MediaCommand.Play -> true
-                MediaCommand.Pause,
-                MediaCommand.Stop -> false
+                MediaCommand.Pause, MediaCommand.Stop -> false
+
                 MediaCommand.TogglePlayPause -> !snapshot.value.playWhenReady
                 else -> null
             }
@@ -267,6 +274,7 @@ class PlaybackCoordinator(
         mediaIntegration.deactivate()
         player.terminate()
         playerInitialized = false
+        scope.cancel()
     }
 
     private fun handleMpvEvent(event: MpvEvent) {
@@ -289,32 +297,35 @@ class PlaybackCoordinator(
                                 if (pauseProperty) PlaybackStatus.Paused else PlaybackStatus.Playing
                             } else {
                                 next.status
-                            },
-                            playWhenReady = !pauseProperty
+                            }, playWhenReady = !pauseProperty
                         )
                     }
-                    MpvPlaybackProperties.SPEED ->
-                        next.copy(speed = event.value?.toFloatOrNull() ?: 1f)
-                    MpvPlaybackProperties.TIME_POSITION ->
-                        next.copy(positionMillis = event.value.toNonNegativeMillis())
-                    MpvPlaybackProperties.DURATION ->
-                        next.copy(durationMillis = event.value.toNonNegativeMillis())
-                    MpvAudioProperties.VOLUME ->
-                        next.copy(volume = event.value?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f)
+
+                    MpvPlaybackProperties.SPEED -> next.copy(
+                        speed = event.value?.toFloatOrNull() ?: 1f
+                    )
+
+                    MpvPlaybackProperties.TIME_POSITION -> next.copy(positionMillis = event.value.toNonNegativeMillis())
+
+                    MpvPlaybackProperties.DURATION -> next.copy(durationMillis = event.value.toNonNegativeMillis())
+
+                    MpvAudioProperties.VOLUME -> next.copy(
+                        volume = event.value?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
+                    )
+
                     PLAYLIST_POSITION -> {
                         val index = event.value?.toDoubleOrNull()?.toInt()
                         if (index != null && index in queue.indices) {
                             val metadata = queue[index]
                             if (metadata != next.metadata) mediaIntegration.updateMetadata(metadata)
                             next.copy(
-                                metadata = metadata,
-                                queueIndex = index,
-                                queueSize = queue.size
+                                metadata = metadata, queueIndex = index, queueSize = queue.size
                             )
                         } else {
                             next
                         }
                     }
+
                     LOOP_FILE -> next.copy(
                         repeatMode = if (event.value.toMpvBoolean()) {
                             PlaybackRepeatMode.One
@@ -324,6 +335,7 @@ class PlaybackCoordinator(
                             next.repeatMode
                         }
                     )
+
                     LOOP_PLAYLIST -> next.copy(
                         repeatMode = if (event.value.toMpvBoolean()) {
                             PlaybackRepeatMode.All
@@ -333,9 +345,11 @@ class PlaybackCoordinator(
                             next.repeatMode
                         }
                     )
+
                     else -> next
                 }
             }
+
             MpvEventType.Pause -> {
                 pauseProperty = true
                 next = next.copy(
@@ -343,6 +357,7 @@ class PlaybackCoordinator(
                     playWhenReady = false
                 )
             }
+
             MpvEventType.Unpause -> {
                 pauseProperty = false
                 next = next.copy(
@@ -350,22 +365,22 @@ class PlaybackCoordinator(
                     playWhenReady = true
                 )
             }
+
             MpvEventType.StartFile -> {
                 hasActiveFile = false
                 stopRequested = false
                 next = next.copy(
-                    status = PlaybackStatus.Loading,
-                    positionMillis = 0,
-                    durationMillis = 0
+                    status = PlaybackStatus.Loading, positionMillis = 0, durationMillis = 0
                 )
             }
-            MpvEventType.FileLoaded,
-            MpvEventType.PlaybackRestart -> {
+
+            MpvEventType.FileLoaded, MpvEventType.PlaybackRestart -> {
                 hasActiveFile = true
                 next = next.copy(
                     status = if (pauseProperty) PlaybackStatus.Paused else PlaybackStatus.Playing
                 )
             }
+
             MpvEventType.EndFile -> {
                 hasActiveFile = false
                 next = next.copy(
@@ -373,19 +388,21 @@ class PlaybackCoordinator(
                 )
                 stopRequested = false
             }
+
             MpvEventType.Idle -> {
                 if (!hasActiveFile && next.status == PlaybackStatus.Loading) {
                     next = next.copy(status = PlaybackStatus.Idle)
                 }
             }
+
             MpvEventType.Shutdown -> {
                 hasActiveFile = false
                 stopRequested = false
                 next = next.copy(
-                    status = PlaybackStatus.Disposed,
-                    playWhenReady = false
+                    status = PlaybackStatus.Disposed, playWhenReady = false
                 )
             }
+
             else -> Unit
         }
         if (next != snapshot.value) publishSnapshot(next)
@@ -401,8 +418,7 @@ class PlaybackCoordinator(
 
     private fun applyRepeatMode(repeatMode: PlaybackRepeatMode): Int {
         var result = player.setProperty(
-            LOOP_FILE,
-            if (repeatMode == PlaybackRepeatMode.One) MPV_INFINITE else MPV_DISABLED
+            LOOP_FILE, if (repeatMode == PlaybackRepeatMode.One) MPV_INFINITE else MPV_DISABLED
         )
         result = result.firstErrorOr(
             player.setProperty(

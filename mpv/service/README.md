@@ -17,7 +17,6 @@ commonMain.dependencies {
 
 ```kotlin
 val coordinator = PlaybackCoordinator(
-    scope = applicationScope,
     mediaIntegration = platformMediaIntegration,
     stateStore = platformStateStore
 )
@@ -49,9 +48,9 @@ MpvComposeView(state = coordinator.player)
 
 ## Android
 
-模块清单已声明前台媒体播放权限和 `MpvMediaSessionService`。默认 Service 持有 libmpv、`MediaSession`、`SimpleBasePlayer` 适配器、音频焦点和耳机断开监听，并使用 `AndroidPlaybackStateStore` 恢复上次队列。
+模块清单已声明前台媒体播放权限和 `MpvMediaSessionService`。`AndroidMediaSessionIntegration` 实现公共层的 `PlatformMediaIntegration`，负责将 coordinator 状态发布给 Media3，并把系统命令路由回 coordinator。默认 Service 持有 libmpv、`MediaSession`、`SimpleBasePlayer` 适配器、音频焦点和耳机断开监听，并使用 `AndroidPlaybackStateStore` 恢复上次队列。
 
-应用可直接通过 `SessionToken`/`MediaController` 连接该 Service，也可继承它并覆盖 `createPlaybackCoordinator()` 注入自己的配置。系统或控制器提供队列时，`MpvMedia3Player` 会将所有 `MediaItem` 转成 `PlaybackMetadata`，再统一交给 coordinator。
+应用可直接通过 `SessionToken`/`MediaController` 连接该 Service，也可继承它并覆盖 `createPlaybackCoordinator(mediaIntegration)` 注入自己的配置；传入的 `mediaIntegration` 必须继续交给新 coordinator。系统或控制器提供队列时，`MpvMedia3Player` 会将所有 `MediaItem` 转成 `PlaybackMetadata`，再统一交给 coordinator。
 
 Android 端要求：
 
@@ -65,7 +64,6 @@ Android 端要求：
 
 ```kotlin
 PlaybackCoordinator(
-    scope = applicationScope,
     mediaIntegration = IosNowPlayingMediaIntegration(customArtworkLoader),
     stateStore = IosPlaybackStateStore()
 )
@@ -87,7 +85,6 @@ val config = DesktopMediaIntegrationConfig(
     nativeWindowHandle = windowsHwnd
 )
 val coordinator = PlaybackCoordinator(
-    scope = applicationScope,
     mediaIntegration = createDesktopMediaIntegration(config),
     stateStore = DesktopPlaybackStateStore(config.applicationId)
 )

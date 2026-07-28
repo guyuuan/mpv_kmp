@@ -13,9 +13,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 
 class PlaybackCoordinatorTest {
     @Test
@@ -184,11 +181,9 @@ class PlaybackCoordinatorTest {
         availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
         stateStore: PlaybackStateStore? = null
     ) {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val mpv = FakeMpv()
         val integration = RecordingIntegration()
         val coordinator = PlaybackCoordinator(
-            scope = scope,
             mpv = mpv,
             mediaIntegration = integration,
             stateStore = stateStore,
@@ -197,7 +192,6 @@ class PlaybackCoordinatorTest {
 
         fun close() {
             coordinator.close()
-            scope.cancel()
         }
     }
 

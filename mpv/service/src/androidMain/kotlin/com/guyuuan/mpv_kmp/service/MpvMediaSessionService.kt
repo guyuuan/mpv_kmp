@@ -13,13 +13,18 @@ import kotlinx.coroutines.cancel
 open class MpvMediaSessionService : MediaSessionService() {
     private lateinit var serviceScope: CoroutineScope
     private var coordinator: PlaybackCoordinator? = null
-    private var media3Player: MpvMedia3Player? = null
+    private var mediaIntegration: AndroidMediaSessionIntegration? = null
     private var mediaSession: MediaSession? = null
     private var interruptionManager: AndroidPlaybackInterruptionManager? = null
 
-    protected open fun createPlaybackCoordinator(scope: CoroutineScope): PlaybackCoordinator =
+    protected open fun createPlatformMediaIntegration(): AndroidMediaSessionIntegration =
+        AndroidMediaSessionIntegration()
+
+    protected open fun createPlaybackCoordinator(
+        mediaIntegration: PlatformMediaIntegration
+    ): PlaybackCoordinator =
         PlaybackCoordinator(
-            scope = scope,
+            mediaIntegration = mediaIntegration,
             stateStore = AndroidPlaybackStateStore(this)
         )
 
@@ -30,14 +35,14 @@ open class MpvMediaSessionService : MediaSessionService() {
         super.onCreate()
         serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-        val coordinator = createPlaybackCoordinator(serviceScope)
+        val mediaIntegration = createPlatformMediaIntegration()
+        val coordinator = createPlaybackCoordinator(mediaIntegration)
         if (!coordinator.start()) {
             coordinator.close()
             error("Unable to initialize libmpv")
         }
         coordinator.restoreSavedPlayback()
-        val player = MpvMedia3Player(coordinator)
-        val session = MediaSession.Builder(this, player).build()
+        val session = MediaSession.Builder(this, mediaIntegration.player).build()
         val interruptionManager = AndroidPlaybackInterruptionManager(
             context = this,
             coordinator = coordinator,
@@ -46,7 +51,7 @@ open class MpvMediaSessionService : MediaSessionService() {
         interruptionManager.start()
 
         this.coordinator = coordinator
-        this.media3Player = player
+        this.mediaIntegration = mediaIntegration
         this.mediaSession = session
         this.interruptionManager = interruptionManager
     }
@@ -57,12 +62,11 @@ open class MpvMediaSessionService : MediaSessionService() {
     override fun onDestroy() {
         interruptionManager?.stop()
         interruptionManager = null
-        media3Player?.release()
-        media3Player = null
         mediaSession?.release()
         mediaSession = null
         coordinator?.close()
         coordinator = null
+        mediaIntegration = null
         serviceScope.cancel()
         super.onDestroy()
     }
