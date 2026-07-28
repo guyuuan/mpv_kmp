@@ -80,6 +80,20 @@ class PlaybackCoordinatorTest {
                 value = "12.25"
             )
         )
+        fixture.mpv.emit(
+            MpvEvent(
+                type = MpvEventType.PropertyChange,
+                name = "video-out-params/dw",
+                value = "1920"
+            )
+        )
+        fixture.mpv.emit(
+            MpvEvent(
+                type = MpvEventType.PropertyChange,
+                name = "video-out-params/dh",
+                value = "1080"
+            )
+        )
 
         assertEquals(
             PlaybackSnapshot(
@@ -88,6 +102,8 @@ class PlaybackCoordinatorTest {
                 playWhenReady = true,
                 positionMillis = 12_250,
                 durationMillis = 125_500,
+                videoWidth = 1920,
+                videoHeight = 1080,
                 queueIndex = 0,
                 queueSize = 1
             ),

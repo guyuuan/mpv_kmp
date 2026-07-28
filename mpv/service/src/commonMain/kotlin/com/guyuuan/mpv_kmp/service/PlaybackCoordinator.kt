@@ -25,13 +25,14 @@ import kotlinx.coroutines.launch
  * composition.
  */
 class PlaybackCoordinator(
-    mpv: Mpv = Mpv(),
+    mpv: Mpv? = null,
     private val mediaIntegration: PlatformMediaIntegration = NoopPlatformMediaIntegration,
     private val stateStore: PlaybackStateStore? = null,
     availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS
 ) : MediaCommandHandler {
+    private val ownsSharedMpv: Boolean = mpv == null
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val player: Mpv = mpv
+    val player: Mpv = mpv ?: Mpv()
 
     private val mutableSnapshot = MutableStateFlow(
         PlaybackSnapshot(availableCommands = availableCommands.toSet())
@@ -272,7 +273,11 @@ class PlaybackCoordinator(
         mediaIntegration.updatePlaybackState(disposed)
         mediaIntegration.updateMetadata(null)
         mediaIntegration.deactivate()
-        player.terminate()
+        if (ownsSharedMpv) {
+            Mpv.release()
+        } else {
+            player.terminate()
+        }
         playerInitialized = false
         scope.cancel()
     }
@@ -311,6 +316,14 @@ class PlaybackCoordinator(
 
                     MpvAudioProperties.VOLUME -> next.copy(
                         volume = event.value?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
+                    )
+
+                    VIDEO_DISPLAY_WIDTH -> next.copy(
+                        videoWidth = event.value.toNonNegativeDimension()
+                    )
+
+                    VIDEO_DISPLAY_HEIGHT -> next.copy(
+                        videoHeight = event.value.toNonNegativeDimension()
                     )
 
                     PLAYLIST_POSITION -> {
@@ -370,7 +383,11 @@ class PlaybackCoordinator(
                 hasActiveFile = false
                 stopRequested = false
                 next = next.copy(
-                    status = PlaybackStatus.Loading, positionMillis = 0, durationMillis = 0
+                    status = PlaybackStatus.Loading,
+                    positionMillis = 0,
+                    durationMillis = 0,
+                    videoWidth = 0,
+                    videoHeight = 0
                 )
             }
 
@@ -473,6 +490,8 @@ private const val PERSISTENCE_DEBOUNCE_MILLIS = 1_000L
 private const val PLAYLIST_POSITION = "playlist-pos"
 private const val LOOP_FILE = "loop-file"
 private const val LOOP_PLAYLIST = "loop-playlist"
+private const val VIDEO_DISPLAY_WIDTH = "video-out-params/dw"
+private const val VIDEO_DISPLAY_HEIGHT = "video-out-params/dh"
 private const val MPV_INFINITE = "inf"
 private const val MPV_DISABLED = "no"
 
@@ -482,6 +501,8 @@ private val COORDINATOR_OBSERVED_PROPERTIES = listOf(
     MpvPlaybackProperties.SPEED,
     MpvPlaybackProperties.TIME_POSITION,
     MpvPlaybackProperties.DURATION,
+    VIDEO_DISPLAY_WIDTH,
+    VIDEO_DISPLAY_HEIGHT,
     PLAYLIST_POSITION,
     LOOP_FILE,
     LOOP_PLAYLIST
@@ -493,3 +514,6 @@ private fun String?.toMpvBoolean(): Boolean = this == "yes" || this == "true"
 
 private fun String?.toNonNegativeMillis(): Long =
     ((this?.toDoubleOrNull() ?: 0.0).coerceAtLeast(0.0) * MILLIS_PER_SECOND).toLong()
+
+private fun String?.toNonNegativeDimension(): Int =
+    (this?.toDoubleOrNull() ?: 0.0).toInt().coerceAtLeast(0)

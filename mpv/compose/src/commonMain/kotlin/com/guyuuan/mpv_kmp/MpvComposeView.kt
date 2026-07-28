@@ -4,19 +4,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 @Composable
-expect fun MpvComposeView(
+fun MpvComposeView(
+    modifier: Modifier = Modifier,
+    player: MpvPlayer,
+    overlay: @Composable () -> Unit = {}
+) {
+    MpvVideoOutputView(modifier, player.videoOutput, overlay)
+}
+
+/**
+ * Direct-libmpv overload kept for source compatibility. New code should pass an [MpvPlayer].
+ */
+@Composable
+fun MpvComposeView(
     modifier: Modifier = Modifier,
     state: Mpv,
     overlay: @Composable () -> Unit = {}
+) {
+    MpvVideoOutputView(modifier, LocalMpvVideoOutput(state), overlay)
+}
+
+@Composable
+internal expect fun MpvVideoOutputView(
+    modifier: Modifier,
+    output: MpvVideoOutput,
+    overlay: @Composable () -> Unit
 )
 
-internal val Mpv.renderTarget: Mpv
-    get() = (this as? MpvPlayer)?.mpv ?: this
-
 internal fun Mpv.reportRenderError(message: String, cause: Throwable? = null) {
-    if (this is MpvPlayer) {
-        reportRenderError(message, cause)
-    } else {
-        println("MpvComposeView: render failed: $message${cause?.let { ": $it" } ?: ""}")
-    }
+    println("MpvComposeView: render failed: $message${cause?.let { ": $it" } ?: ""}")
 }

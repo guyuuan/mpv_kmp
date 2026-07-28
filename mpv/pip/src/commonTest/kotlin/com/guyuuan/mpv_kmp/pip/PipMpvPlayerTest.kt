@@ -1,0 +1,83 @@
+package com.guyuuan.mpv_kmp.pip
+
+import com.guyuuan.mpv_kmp.MpvPlayer
+import com.guyuuan.mpv_kmp.MpvPlayerCapability
+import com.guyuuan.mpv_kmp.MpvPlayerSnapshot
+import com.guyuuan.mpv_kmp.MpvVideoOutput
+import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
+
+class PipMpvPlayerTest {
+    @Test
+    fun exposesPipCapabilityOnlyWhenPlatformIsAvailable() {
+        val available = FakePictureInPictureController(
+            PictureInPictureAvailability.Available
+        )
+        val unsupported = FakePictureInPictureController(
+            PictureInPictureAvailability.UnsupportedVideoOutput
+        )
+
+        assertTrue(
+            MpvPlayerCapability.PictureInPicture in
+                PipMpvPlayer(FakePlayer, available).capabilities
+        )
+        assertFalse(
+            MpvPlayerCapability.PictureInPicture in
+                PipMpvPlayer(FakePlayer, unsupported).capabilities
+        )
+    }
+
+    @Test
+    fun closeReleasesConnectionOnlyOnce() {
+        val controller = FakePictureInPictureController(
+            PictureInPictureAvailability.Available
+        )
+        var releaseCount = 0
+        val player = PipMpvPlayer(FakePlayer, controller) {
+            releaseCount++
+        }
+
+        player.close()
+        player.close()
+
+        assertEquals(1, releaseCount)
+    }
+
+    private object FakePlayer : MpvPlayer {
+        override val snapshot: StateFlow<MpvPlayerSnapshot> =
+            MutableStateFlow(MpvPlayerSnapshot())
+        override val capabilities: Set<MpvPlayerCapability> = emptySet()
+        override val videoOutput: MpvVideoOutput = object : MpvVideoOutput {}
+        override val decoderInfoFlow: Flow<MpvDecoderInfo> = emptyFlow()
+
+        override fun load(uri: String): Int = 0
+        override fun play(): Int = 0
+        override fun pause(): Int = 0
+        override fun stop(): Int = 0
+        override fun seek(positionSeconds: Double): Int = 0
+        override fun setVolume(volume: Double): Int = 0
+        override fun setSpeed(speed: Float): Int = 0
+    }
+
+    private class FakePictureInPictureController(
+        availability: PictureInPictureAvailability
+    ) : PictureInPictureController {
+        override val availability: StateFlow<PictureInPictureAvailability> =
+            MutableStateFlow(availability)
+        override val state: StateFlow<PictureInPictureState> =
+            MutableStateFlow(PictureInPictureState.Inactive)
+
+        override fun setEligible(eligible: Boolean) = Unit
+        override fun setAspectRatio(width: Int, height: Int) = Unit
+        override fun requestStart(): Boolean = false
+        override fun requestStop(): Boolean = false
+        override fun close() = Unit
+    }
+}

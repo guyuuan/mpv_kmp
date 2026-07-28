@@ -9,11 +9,10 @@
 ```kotlin
 commonMain.dependencies {
     implementation(projects.mpv.service)
-    implementation(projects.mpv.compose)
 }
 ```
 
-`PlaybackCoordinator` 必须由 Service、应用级对象或桌面应用生命周期持有，不能在播放页面离开组合时销毁。`rememberMpvPlayer()` 与 `MpvComposeView` 位于 `mpv/compose`，适合不需要后台播放的页面；后台播放 UI 应改为使用 `coordinator.player`：
+`PlaybackCoordinator` 必须由 Service、应用级对象或桌面应用生命周期持有，不能在播放页面离开组合时销毁。`rememberMpvPlayer()` 与 `MpvComposeView` 位于 `mpv/compose`，适合不需要后台播放的页面；Android 后台播放和 PiP UI 应依赖 `mpv/pip`，通过 `MediaController` 连接 Service，不能直接持有 `coordinator.player`：
 
 ```kotlin
 val coordinator = PlaybackCoordinator(
@@ -38,12 +37,6 @@ coordinator.setQueue(
 
 `DesktopPlaybackStateStore` 使用对应系统的用户数据目录和原子文件替换，不受 Java Preferences 单值大小限制。
 
-Compose 只绑定播放器，不负责关闭它：
-
-```kotlin
-MpvComposeView(state = coordinator.player)
-```
-
 在真正退出平台级所有者时调用 `coordinator.close()`。队列、索引、位置、速度、循环、随机和暂停状态会先写入配置的 `PlaybackStateStore`；定期状态变化也会以 1 秒防抖保存。默认恢复不会自动播放，只有用户明确允许时才调用 `restoreSavedPlayback(resumePlayback = true)`。
 
 ## Android
@@ -51,6 +44,10 @@ MpvComposeView(state = coordinator.player)
 模块清单已声明前台媒体播放权限和 `MpvMediaSessionService`。`AndroidMediaSessionIntegration` 实现公共层的 `PlatformMediaIntegration`，负责将 coordinator 状态发布给 Media3，并把系统命令路由回 coordinator。默认 Service 持有 libmpv、`MediaSession`、`SimpleBasePlayer` 适配器、音频焦点和耳机断开监听，并使用 `AndroidPlaybackStateStore` 恢复上次队列。
 
 应用可直接通过 `SessionToken`/`MediaController` 连接该 Service，也可继承它并覆盖 `createPlaybackCoordinator(mediaIntegration)` 注入自己的配置；传入的 `mediaIntegration` 必须继续交给新 coordinator。系统或控制器提供队列时，`MpvMedia3Player` 会将所有 `MediaItem` 转成 `PlaybackMetadata`，再统一交给 coordinator。
+
+Compose 应用可直接依赖 `mpv/pip` 并使用 `rememberPipMpvPlayer()`。返回的
+`PipMpvPlayer` 只持有 MediaController 连接；视频 `SurfaceView` 经 Media3 传给 Service，
+不会在 UI 进程生命周期内再创建第二个播放器。
 
 Android 端要求：
 

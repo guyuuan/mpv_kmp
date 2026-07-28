@@ -3,6 +3,9 @@ package com.guyuuan.mpv_kmp.service
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.view.Surface
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -10,6 +13,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -30,6 +34,36 @@ class MpvMedia3Player(
         Handler(looper).asCoroutineDispatcher("MpvMedia3Player").immediate
     private val scope = CoroutineScope(SupervisorJob() + playerDispatcher)
     private var latestSnapshot = coordinator?.snapshot?.value ?: PlaybackSnapshot()
+    private var currentVideoOutput: Any? = null
+    private var currentVideoSurfaceHolder: SurfaceHolder? = null
+    private val videoSurfaceCallback = object : SurfaceHolder.Callback {
+        override fun surfaceCreated(holder: SurfaceHolder) {
+            if (holder === currentVideoSurfaceHolder) {
+                attachVideoSurface(
+                    surface = holder.surface,
+                    width = holder.surfaceFrame.width(),
+                    height = holder.surfaceFrame.height()
+                )
+            }
+        }
+
+        override fun surfaceChanged(
+            holder: SurfaceHolder,
+            format: Int,
+            width: Int,
+            height: Int
+        ) {
+            if (holder === currentVideoSurfaceHolder) {
+                attachVideoSurface(holder.surface, width, height)
+            }
+        }
+
+        override fun surfaceDestroyed(holder: SurfaceHolder) {
+            // Media3 follows with handleClearVideoOutput when the remote surface is removed.
+            // Keep libmpv's wid until then so replacing the surface does not reinitialize the VO
+            // with a missing surface.
+        }
+    }
 
     internal fun updateMetadata(metadata: PlaybackMetadata?) {
         scope.launch {
@@ -77,6 +111,10 @@ class MpvMedia3Player(
                     PlaybackException.ERROR_CODE_UNSPECIFIED
                 )
             )
+        }
+
+        if (snapshot.videoWidth > 0 && snapshot.videoHeight > 0) {
+            builder.setVideoSize(VideoSize(snapshot.videoWidth, snapshot.videoHeight))
         }
 
         val queue = coordinator?.queueItems.orEmpty().ifEmpty {
@@ -139,6 +177,52 @@ class MpvMedia3Player(
     override fun handleSetShuffleModeEnabled(shuffleModeEnabled: Boolean): ListenableFuture<*> =
         execute(MediaCommand.SetShuffle(shuffleModeEnabled))
 
+    override fun handleSetVideoOutput(videoOutput: Any): ListenableFuture<*> {
+        if (coordinator?.player == null) {
+            return Futures.immediateFailedFuture<Void>(
+                UnsupportedOperationException(
+                    "Setting a video output requires a PlaybackCoordinator command handler"
+                )
+            )
+        }
+        val holder = when (videoOutput) {
+            is SurfaceView -> videoOutput.holder
+            is SurfaceHolder -> videoOutput
+            else -> null
+        }
+        val surface = holder?.surface ?: videoOutput as? Surface
+            ?: return Futures.immediateFailedFuture<Void>(
+                IllegalArgumentException(
+                    "Unsupported Media3 video output: ${videoOutput::class.simpleName}"
+                )
+            )
+        if (!surface.isValid) {
+            return Futures.immediateFailedFuture<Void>(
+                IllegalStateException("Media3 video surface is not valid")
+            )
+        }
+
+        currentVideoOutput = videoOutput
+        replaceVideoSurfaceHolder(holder)
+        attachVideoSurface(
+            surface = surface,
+            width = holder?.surfaceFrame?.width() ?: 0,
+            height = holder?.surfaceFrame?.height() ?: 0
+        )
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleClearVideoOutput(videoOutput: Any?): ListenableFuture<*> {
+        if (videoOutput == null || currentVideoOutput === videoOutput) {
+            currentVideoOutput = null
+            replaceVideoSurfaceHolder(null)
+        }
+        // Do not clear libmpv's wid while Android is replacing a SurfaceView surface. Doing so
+        // makes the Android VO reinitialize without a surface and fail with "Missing surface
+        // pointer". The next handleSetVideoOutput call replaces the stale surface atomically.
+        return Futures.immediateVoidFuture()
+    }
+
     override fun handleSetMediaItems(
         mediaItems: MutableList<MediaItem>,
         startIndex: Int,
@@ -174,8 +258,26 @@ class MpvMedia3Player(
     }
 
     override fun handleRelease(): ListenableFuture<*> {
+        currentVideoOutput = null
+        replaceVideoSurfaceHolder(null)
         scope.cancel()
         return Futures.immediateVoidFuture()
+    }
+
+    private fun replaceVideoSurfaceHolder(holder: SurfaceHolder?) {
+        if (currentVideoSurfaceHolder === holder) return
+        currentVideoSurfaceHolder?.removeCallback(videoSurfaceCallback)
+        currentVideoSurfaceHolder = holder
+        holder?.addCallback(videoSurfaceCallback)
+    }
+
+    private fun attachVideoSurface(surface: Surface, width: Int, height: Int) {
+        if (!surface.isValid) return
+        val player = coordinator?.player ?: return
+        if (width > 0 && height > 0) {
+            player.setProperty(ANDROID_SURFACE_SIZE_PROPERTY, "${width}x$height")
+        }
+        player.attach(surface)
     }
 
     private fun execute(command: MediaCommand): ListenableFuture<*> {
@@ -198,6 +300,7 @@ private fun PlaybackSnapshot.toMedia3Commands(): Player.Commands {
         .add(Player.COMMAND_GET_METADATA)
         .add(Player.COMMAND_GET_VOLUME)
         .add(Player.COMMAND_SET_MEDIA_ITEM)
+        .add(Player.COMMAND_SET_VIDEO_SURFACE)
         .add(Player.COMMAND_PREPARE)
 
     if (MediaCommandType.Play in availableCommands || MediaCommandType.Pause in availableCommands) {
@@ -311,3 +414,4 @@ private fun resultFuture(result: Int): ListenableFuture<*> =
     }
 
 private const val MAX_MPV_VOLUME = 100f
+private const val ANDROID_SURFACE_SIZE_PROPERTY = "android-surface-size"
