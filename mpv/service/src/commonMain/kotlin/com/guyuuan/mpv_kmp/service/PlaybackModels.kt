@@ -154,6 +154,8 @@ data class PlaybackSnapshot(
     val durationMillis: Long = 0,
     val speed: Float = 1f,
     val volume: Float = 0f,
+    val videoWidth: Int = 0,
+    val videoHeight: Int = 0,
     val queueIndex: Int? = null,
     val queueSize: Int = 0,
     val repeatMode: PlaybackRepeatMode = PlaybackRepeatMode.None,
@@ -166,6 +168,8 @@ data class PlaybackSnapshot(
     init {
         require(positionMillis >= 0) { "Position must not be negative" }
         require(durationMillis >= 0) { "Duration must not be negative" }
+        require(videoWidth >= 0) { "Video width must not be negative" }
+        require(videoHeight >= 0) { "Video height must not be negative" }
         require(queueSize >= 0) { "Queue size must not be negative" }
         require(queueIndex == null || queueIndex in 0 until queueSize) {
             "Queue index must point to an item in the queue"

@@ -21,7 +21,7 @@ import javax.swing.SwingUtilities
 internal fun MpvHardwareRenderView(
     modifier: Modifier, state: Mpv, overlay: @Composable () -> Unit
 ) {
-    val player = state.renderTarget
+    val player = state
     val glCanvas = remember(player) {
         createMpvGlCanvas(state)
     }
@@ -74,7 +74,7 @@ private fun createMpvGlCanvas(state: Mpv): GLCanvas {
             private val renderPending = AtomicBoolean(false)
 
             override fun init(drawable: GLAutoDrawable) {
-                val player = state.renderTarget
+                val player = state
                 if (player !is HardwareRenderSupport) {
                     failed = true
                     state.reportRenderError("mpv does not support embedded GPU rendering")
@@ -110,7 +110,7 @@ private fun createMpvGlCanvas(state: Mpv): GLCanvas {
 
             override fun display(drawable: GLAutoDrawable) {
                 if (!initialized || failed) return
-                val player = state.renderTarget
+                val player = state
                 if (player !is HardwareRenderSupport) return
                 val width = drawable.surfaceWidth
                 val height = drawable.surfaceHeight
@@ -130,7 +130,7 @@ private fun createMpvGlCanvas(state: Mpv): GLCanvas {
             }
 
             override fun dispose(drawable: GLAutoDrawable) {
-                val player = state.renderTarget
+                val player = state
                 if (player is HardwareRenderSupport) {
                     try {
                         player.freeOpenGlRenderContext()

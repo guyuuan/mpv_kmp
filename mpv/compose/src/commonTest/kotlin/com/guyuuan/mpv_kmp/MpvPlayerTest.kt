@@ -19,7 +19,7 @@ class MpvPlayerTest {
     fun decoderInfoFlowObservesAndRemovesDecoderPropertiesWithCollectors() = runBlocking {
         val player = FakeMpv(emptyMap())
         val playerScope = CoroutineScope(Job())
-        val state = MpvPlayer(player, playerScope)
+        val state = LocalMpvPlayer(player, playerScope)
         state.setup()
 
         val job = launch {
@@ -33,7 +33,7 @@ class MpvPlayerTest {
         eventually {
             player.removedProperties.containsAll(MpvDecoderProperties.ALL)
         }
-        state.dispose()
+        state.close()
         playerScope.cancel()
     }
 
@@ -44,7 +44,7 @@ class MpvPlayerTest {
         )
         val player = FakeMpv(properties)
         val playerScope = CoroutineScope(Job())
-        val state = MpvPlayer(player, playerScope)
+        val state = LocalMpvPlayer(player, playerScope)
         val received = mutableListOf<MpvDecoderInfo>()
         state.setup()
 
@@ -70,7 +70,7 @@ class MpvPlayerTest {
         }
 
         job.cancelAndJoin()
-        state.dispose()
+        state.close()
         playerScope.cancel()
     }
 

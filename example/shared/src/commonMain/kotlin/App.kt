@@ -12,11 +12,14 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.guyuuan.mpv_kmp.MpvComposeView
-import com.guyuuan.mpv_kmp.rememberMpvPlayer
+import com.guyuuan.mpv_kmp.pip.PictureInPictureState
+import com.guyuuan.mpv_kmp.pip.rememberPipMpvPlayer
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -24,7 +27,9 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 fun App(overlay: @Composable BoxScope.() -> Unit = {}) {
     MaterialTheme {
-        val playerState = rememberMpvPlayer()
+        val player = rememberPipMpvPlayer()
+        val playerSnapshot by player.snapshot.collectAsState()
+        val pictureInPictureState by player.pictureInPicture.state.collectAsState()
         val videoUrl =
             "https://emby.guyuuan.com:23231/emby/Items/39635/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_39635"
 //        val videoUrl =
@@ -32,31 +37,38 @@ fun App(overlay: @Composable BoxScope.() -> Unit = {}) {
 
         fun playVideo() {
             println("start load video: $videoUrl")
-            val load = playerState.load(videoUrl)
+            val load = player.load(videoUrl)
             println("load result: $load")
-            val play = playerState.play()
+            val play = player.play()
             println("play result: $play")
         }
 
         MpvComposeView(
-            modifier = Modifier.fillMaxSize(), state = playerState, overlay = {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    overlay()
-                    PlaySpeed(
-                        modifier = Modifier.align(alignment = Alignment.CenterEnd).padding(end =16.dp),
-                        value = playerState.speed
+            modifier = Modifier.fillMaxSize(), player = player, overlay = {
+                if (pictureInPictureState == PictureInPictureState.Inactive) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
                     ) {
-                        playerState.setSpeed(it)
+                        overlay()
+                        PlaySpeed(
+                            modifier = Modifier.align(alignment = Alignment.CenterEnd)
+                                .padding(end = 16.dp),
+                            value = playerSnapshot.speed
+                        ) {
+                            player.setSpeed(it)
+                        }
+                        BottomBar(
+                            modifier = Modifier.align(alignment = Alignment.BottomCenter)
+                                .windowInsetsPadding(insets = WindowInsets.safeContent),
+                            playerState = player
+                        )
                     }
-                    BottomBar(
-                        modifier = Modifier.align(alignment = Alignment.BottomCenter)
-                            .windowInsetsPadding(insets = WindowInsets.safeContent),
-                        playerState = playerState
-                    )
                 }
             })
+
+        LaunchedEffect(playerSnapshot.isPlaying) {
+            player.pictureInPicture.setEligible(playerSnapshot.isPlaying)
+        }
 
         LaunchedEffect(Unit) {
             delay(2000.milliseconds)

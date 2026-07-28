@@ -24,7 +24,7 @@ import kotlin.math.roundToInt
 internal fun MpvSoftwareRenderView(
     modifier: Modifier, state: Mpv, overlay: @Composable () -> Unit
 ) {
-    val player = state.renderTarget
+    val player = state
     val frameBuffer = remember(player) { SoftwareRenderFrameBuffer() }
     val renderPending = remember(player) { AtomicBoolean(false) }
     var renderSignal by remember(player) { mutableStateOf(0) }

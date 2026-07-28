@@ -11,7 +11,7 @@ class MpvSurfaceView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : SurfaceView(context, attrs, defStyleAttr), SurfaceHolder.Callback {
 
-    private var player: Mpv? = null
+    private var videoOutput: AndroidMpvVideoOutput? = null
     private var attachedSurface: android.view.Surface? = null
     private var attachedWidth: Int = 0
     private var attachedHeight: Int = 0
@@ -20,18 +20,23 @@ class MpvSurfaceView @JvmOverloads constructor(
         holder.addCallback(this)
     }
 
-    fun setPlayer(player: Mpv) {
-        if (this.player != null && this.player !== player) {
-            this.player?.detach()
+    fun setVideoOutput(videoOutput: AndroidMpvVideoOutput) {
+        if (this.videoOutput != null && this.videoOutput !== videoOutput) {
+            this.videoOutput?.onPlayerViewDetached(this)
+            this.videoOutput?.detach()
             clearAttachedSurface()
         }
-        this.player = player
+        if (this.videoOutput !== videoOutput) {
+            this.videoOutput = videoOutput
+            videoOutput.onPlayerViewAttached(this)
+        }
         attachSurfaceIfReady(holder)
     }
 
     fun release() {
-        player?.detach()
-        player = null
+        videoOutput?.onPlayerViewDetached(this)
+        videoOutput?.detach()
+        videoOutput = null
         clearAttachedSurface()
     }
 
@@ -44,6 +49,7 @@ class MpvSurfaceView @JvmOverloads constructor(
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
+        videoOutput?.surfaceDestroyed(holder.surface)
         clearAttachedSurface()
         // SurfaceView destroys its surface when the app goes to the background.
         // Clearing mpv's wid here makes the Android VO reinitialize with no
@@ -55,15 +61,14 @@ class MpvSurfaceView @JvmOverloads constructor(
         width: Int = holder.surfaceFrame.width(),
         height: Int = holder.surfaceFrame.height()
     ) {
-        val currentPlayer = player ?: return
+        val currentOutput = videoOutput ?: return
         val surface = holder.surface
         if (!surface.isValid || width <= 0 || height <= 0) return
         if (attachedSurface === surface && attachedWidth == width && attachedHeight == height) {
             return
         }
 
-        currentPlayer.setProperty(ANDROID_SURFACE_SIZE_PROPERTY, "${width}x$height")
-        currentPlayer.attach(surface)
+        currentOutput.attach(surface, width, height)
         attachedSurface = surface
         attachedWidth = width
         attachedHeight = height
@@ -73,9 +78,5 @@ class MpvSurfaceView @JvmOverloads constructor(
         attachedSurface = null
         attachedWidth = 0
         attachedHeight = 0
-    }
-
-    private companion object {
-        const val ANDROID_SURFACE_SIZE_PROPERTY = "android-surface-size"
     }
 }

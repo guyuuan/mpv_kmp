@@ -19,6 +19,7 @@ private class AndroidMpv(
             "gpu-api" to "opengl",
             "hwdec" to "mediacodec-copy",
             "vd-lavc-dr" to "no",
+            "keepaspect" to "yes",
             "sub-margin-y" to "80",
             "ao" to "audiotrack"
         )

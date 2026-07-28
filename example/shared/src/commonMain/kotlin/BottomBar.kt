@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.guyuuan.mpv_kmp.MpvPlayer
+import com.guyuuan.mpv_kmp.MpvPlayerCapability
 import com.guyuuan.mpv_kmp.data.MpvAudioTrack
 import com.guyuuan.mpv_kmp.data.MpvSubtitleTrack
 import com.guyuuan.mpv_kmp.data.TrackItem
@@ -49,12 +50,17 @@ import com.guyuuan.mpv_kmp.isIdle
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BottomBar(modifier: Modifier = Modifier, playerState: MpvPlayer) {
+    val snapshot by playerState.snapshot.collectAsStateWithLifecycle()
     val progress by derivedStateOf {
-        (playerState.timePos / (playerState.duration.takeIf { it > 0 } ?: 1.0)).toFloat()
+        (
+            snapshot.positionSeconds /
+                (snapshot.durationSeconds.takeIf { it > 0 } ?: 1.0)
+            ).toFloat()
     }
-    val durationString by remember(playerState.duration, playerState.timePos) {
+    val durationString by remember(snapshot.durationSeconds, snapshot.positionSeconds) {
         derivedStateOf {
-            "${playerState.timePos.secondToMMSS()}/${playerState.duration.secondToMMSS()}"
+            "${snapshot.positionSeconds.secondToMMSS()}/" +
+                snapshot.durationSeconds.secondToMMSS()
         }
     }
     var showDecoderInfo by remember { mutableStateOf(false) }
@@ -66,22 +72,26 @@ fun BottomBar(modifier: Modifier = Modifier, playerState: MpvPlayer) {
             })
         }
     }
-    val isPlaying = playerState.isPlaying || playerState.state.isIdle
+    val isPlaying = snapshot.isPlaying || snapshot.state.isIdle
+    val supportsTracks = MpvPlayerCapability.TrackSelection in playerState.capabilities
+    val supportsDecoderInfo = MpvPlayerCapability.DecoderInfo in playerState.capabilities
     BottomBar(
         modifier = modifier,
         isPlaying = isPlaying,
         progress = progress,
         time = durationString,
-        volume = playerState.volume,
-        onVolumeChange = {playerState.setVolume(it.toDouble())},
+        volume = snapshot.volume,
+        onVolumeChange = { playerState.setVolume(it.toDouble()) },
         onSeek = {
-            playerState.seek(it * playerState.duration)
+            playerState.seek(it * snapshot.durationSeconds)
         },
         onPlay = playerState::play,
         onPause = playerState::pause,
         onClickInfo = {
             showDecoderInfo = true
         },
+        supportsTracks = supportsTracks,
+        supportsDecoderInfo = supportsDecoderInfo,
         getSubtitles = { playerState.getSubtitleList() },
         setSubtitle = { playerState.setSubtitle(it) },
         getAudioTracks = { playerState.getAudioTrackList() },
@@ -107,6 +117,8 @@ private fun BottomBar(
     getAudioTracks: () -> List<MpvAudioTrack>,
     setAudioTrack: (MpvAudioTrack) -> Unit,
     onClickInfo: () -> Unit,
+    supportsTracks: Boolean,
+    supportsDecoderInfo: Boolean,
 ) {
     CompositionLocalProvider(LocalContentColor provides Color.White) {
         Column(modifier = modifier) {
@@ -137,18 +149,22 @@ private fun BottomBar(
                 })
                 Text(text = time, fontFamily = FontFamily.Monospace)
                 AudioVolumeSlider(volume = volume,onValueChange = onVolumeChange)
-                SubtitleSelector(
-                    icon = {
-                        Icon(imageVector = Icons.Default.Subtitles, contentDescription = null)
-                    }, get = getSubtitles, set = setSubtitle
-                )
-                AudioTrackSelector(
-                    icon = {
-                        Icon(imageVector = Icons.Default.Audiotrack, contentDescription = null)
-                    }, get = getAudioTracks, set = setAudioTrack
-                )
-                IconButton(onClick = onClickInfo) {
-                    Icon(imageVector = Icons.Default.Info, contentDescription = null)
+                if (supportsTracks) {
+                    SubtitleSelector(
+                        icon = {
+                            Icon(imageVector = Icons.Default.Subtitles, contentDescription = null)
+                        }, get = getSubtitles, set = setSubtitle
+                    )
+                    AudioTrackSelector(
+                        icon = {
+                            Icon(imageVector = Icons.Default.Audiotrack, contentDescription = null)
+                        }, get = getAudioTracks, set = setAudioTrack
+                    )
+                }
+                if (supportsDecoderInfo) {
+                    IconButton(onClick = onClickInfo) {
+                        Icon(imageVector = Icons.Default.Info, contentDescription = null)
+                    }
                 }
             }
         }

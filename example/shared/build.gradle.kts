@@ -40,7 +40,7 @@ kotlin {
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.material.iconsExtended)
-            implementation(projects.mpv.compose)
+            implementation(projects.mpv.pip)
             implementation(libs.kotlinx.coroutines.core)
         }
     }

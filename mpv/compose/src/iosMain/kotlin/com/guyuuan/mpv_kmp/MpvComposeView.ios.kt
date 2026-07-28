@@ -33,25 +33,36 @@ import kotlin.concurrent.Volatile
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 
+@ExperimentalForeignApi
+interface IosMpvVideoOutput : MpvVideoOutput {
+    fun createView(): UIView
+    fun updateView(view: UIView) = Unit
+    fun releaseView(view: UIView) = Unit
+}
+
 @OptIn(ExperimentalForeignApi::class)
 @Composable
-actual fun MpvComposeView(
+internal actual fun MpvVideoOutputView(
     modifier: Modifier,
-    state: Mpv,
+    output: MpvVideoOutput,
     overlay: @Composable () -> Unit
 ) {
-    Box(modifier=modifier) {
+    val platformOutput = output as? IosMpvVideoOutput
+    val renderPlayer = (output as? LocalMpvVideoOutput)?.mpv as? IosRenderContextSupport
+    Box(modifier = modifier) {
         UIKitView(
             modifier = Modifier.matchParentSize(),
             factory = {
-                val renderPlayer = state.renderTarget as? IosRenderContextSupport
-                renderPlayer?.let { IosMpvGlView(it) } ?: UIView().apply {
+                platformOutput?.createView()
+                    ?: renderPlayer?.let { IosMpvGlView(it) }
+                    ?: UIView().apply {
                     backgroundColor = UIColor.blackColor
                 }
             },
-            update = {},
+            update = { view -> platformOutput?.updateView(view) },
             onRelease = { view ->
                 (view as? IosMpvGlView)?.dispose()
+                platformOutput?.releaseView(view)
             }
         )
         overlay()
