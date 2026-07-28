@@ -669,4 +669,4 @@ internal class JvmMpv(
 }
 
 
-actual fun createMpv(): Mpv = JvmMpv()
+internal actual fun createMpv(): Mpv = JvmMpv()

@@ -408,4 +408,4 @@ private class IosMpv(
     }
 }
 
-actual fun createMpv(): Mpv = IosMpv()
+internal actual fun createMpv(): Mpv = IosMpv()

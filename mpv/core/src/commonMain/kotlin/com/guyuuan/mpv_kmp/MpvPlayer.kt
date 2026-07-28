@@ -32,7 +32,7 @@ val MpvPlayerState.isIdle: Boolean
 fun rememberMpvPlayer(
     scope: CoroutineScope = rememberCoroutineScope()
 ): MpvPlayer {
-    val player = remember { createMpv() }
+    val player = remember { Mpv() }
     val state = remember(player, scope) { MpvPlayer(player, scope) }
 
     DisposableEffect(state) {
@@ -47,7 +47,7 @@ fun rememberMpvPlayer(
 @Stable
 class MpvPlayer(
     val mpv: Mpv, private val scope: CoroutineScope
-) :Mpv by mpv{
+) : Mpv by mpv {
     var state by mutableStateOf(MpvPlayerState.Idle)
         private set
 
@@ -121,11 +121,13 @@ class MpvPlayer(
             MpvEventType.PropertyChange -> {
                 when (event.name) {
                     MpvPlaybackProperties.PAUSE -> handlePauseProperty(event.value)
-                    MpvPlaybackProperties.SPEED -> speed = event.value?.toFloatOrNull()?:1f
-                    MpvPlaybackProperties.TIME_POSITION ->
-                        timePos = event.value?.toDoubleOrNull() ?: 0.0
-                    MpvPlaybackProperties.DURATION ->
-                        duration = event.value?.toDoubleOrNull() ?: 0.0
+                    MpvPlaybackProperties.SPEED -> speed = event.value?.toFloatOrNull() ?: 1f
+                    MpvPlaybackProperties.TIME_POSITION -> timePos =
+                        event.value?.toDoubleOrNull() ?: 0.0
+
+                    MpvPlaybackProperties.DURATION -> duration =
+                        event.value?.toDoubleOrNull() ?: 0.0
+
                     MpvAudioProperties.VOLUME -> volume = event.value?.toFloatOrNull() ?: 0f
                 }
             }
@@ -199,7 +201,7 @@ class MpvPlayer(
         updateState(MpvPlayerState.Error)
     }
 
-   override fun load(uri: String): Int {
+    override fun load(uri: String): Int {
         val result = mpv.load(uri)
         if (result >= 0) {
             hasActiveFile = false
@@ -212,8 +214,6 @@ class MpvPlayer(
         }
         return result
     }
-
-
 
 
     override fun setSubtitle(id: Int?): Int {

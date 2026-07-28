@@ -36,6 +36,7 @@ plugins {
 
 include(":mpv:core")
 include(":mpv:core:androidNative")
+include(":mpv:service")
 include(":example:shared")
 include(":example:androidApp")
 include(":example:desktopApp")
