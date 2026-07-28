@@ -1,6 +1,7 @@
 package com.guyuuan.mpv_kmp.service
 
 import android.content.Context
+import androidx.core.content.edit
 
 /** Persists the playback queue in application-private SharedPreferences. */
 class AndroidPlaybackStateStore(
@@ -17,11 +18,11 @@ class AndroidPlaybackStateStore(
         preferences.getString(key, null)?.let(PlaybackStateCodec::decode)
 
     override fun save(state: RestorablePlaybackState) {
-        preferences.edit().putString(key, PlaybackStateCodec.encode(state)).apply()
+        preferences.edit { putString(key, PlaybackStateCodec.encode(state)) }
     }
 
     override fun clear() {
-        preferences.edit().remove(key).apply()
+        preferences.edit { remove(key) }
     }
 
     private companion object {
