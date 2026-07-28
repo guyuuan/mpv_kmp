@@ -19,7 +19,7 @@ import platform.posix.dlsym
 import kotlin.concurrent.Volatile
 
 @OptIn(ExperimentalForeignApi::class)
-internal interface IosRenderContextSupport {
+interface IosRenderContextSupport {
     fun createRenderContext(): Boolean
     fun freeRenderContext()
     fun updateRenderContext(): Boolean

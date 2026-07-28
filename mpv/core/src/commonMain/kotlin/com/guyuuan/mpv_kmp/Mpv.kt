@@ -1,6 +1,5 @@
 package com.guyuuan.mpv_kmp
 
-import androidx.annotation.FloatRange
 import com.guyuuan.mpv_kmp.data.MpvAudioDecoderInfo
 import com.guyuuan.mpv_kmp.data.MpvAudioTrack
 import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
@@ -99,8 +98,8 @@ interface Mpv {
 
     fun setAudioTrack(id: Int?): Int = setProperty(MpvAudioProperties.AID, id?.toString() ?: "no")
     fun setAudioTrack(audioTrack: MpvAudioTrack): Int = setAudioTrack(audioTrack.id)
-    fun setVolume(@FloatRange(from = 0.0, to = 100.0) volume: Double): Int
-    fun setSpeed(@FloatRange(from = 0.01, to = 100.0) speed: Float): Int =
+    fun setVolume(volume: Double): Int
+    fun setSpeed(speed: Float): Int =
         setProperty(MpvPlaybackProperties.SPEED, speed.toString())
 
     fun getSpeed(): Float? = getProperty(MpvPlaybackProperties.SPEED)?.toFloatOrNull()

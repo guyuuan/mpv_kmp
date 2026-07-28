@@ -2,9 +2,6 @@ package com.guyuuan.mpv_kmp.service
 
 import com.guyuuan.mpv_kmp.Mpv
 import com.guyuuan.mpv_kmp.MpvEventType
-import com.guyuuan.mpv_kmp.MpvPlayer
-import com.guyuuan.mpv_kmp.MpvPlayerState
-import com.guyuuan.mpv_kmp.createMpv
 import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.props.MpvAudioProperties
 import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
@@ -17,7 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Application-level owner for an [MpvPlayer] and its platform media integration.
+ * Application-level owner for an [Mpv] and its platform media integration.
  *
  * UI code may retain and observe [player], but only the platform owner that created this
  * coordinator should call [close]. This keeps playback alive when a Compose page leaves the
@@ -30,7 +27,7 @@ class PlaybackCoordinator(
     private val stateStore: PlaybackStateStore? = null,
     availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS
 ) : MediaCommandHandler {
-    val player: MpvPlayer = MpvPlayer(mpv, scope)
+    val player: Mpv = mpv
 
     private val mutableSnapshot = MutableStateFlow(
         PlaybackSnapshot(availableCommands = availableCommands.toSet())
@@ -43,6 +40,7 @@ class PlaybackCoordinator(
 
     private var started = false
     private var closed = false
+    private var playerInitialized = false
     private var hasActiveFile = false
     private var pauseProperty = false
     private var stopRequested = false
@@ -64,12 +62,15 @@ class PlaybackCoordinator(
         if (started) return snapshot.value.status != PlaybackStatus.Error
 
         mediaIntegration.activate(this)
-        player.setup()
-        player.mpv.addEventListener(eventListener)
-        SERVICE_OBSERVED_PROPERTIES.forEach(player.mpv::observeProperty)
+        playerInitialized = player.initialize()
+        if (playerInitialized) {
+            player.setCoroutineScope(scope)
+            player.addEventListener(eventListener)
+            COORDINATOR_OBSERVED_PROPERTIES.forEach(player::observeProperty)
+        }
         started = true
 
-        val status = player.state.toPlaybackStatus()
+        val status = if (playerInitialized) PlaybackStatus.Idle else PlaybackStatus.Error
         publishSnapshot(snapshot.value.copy(status = status))
         mediaIntegration.updateMetadata(snapshot.value.metadata)
         return status != PlaybackStatus.Error
@@ -162,10 +163,10 @@ class PlaybackCoordinator(
                 stopRequested = true
                 player.stop()
             }
-            is MediaCommand.SeekTo -> player.seek(command.positionMillis / MILLIS_PER_SECOND)
+            is MediaCommand.SeekTo -> player.seekTo(command.positionMillis / MILLIS_PER_SECOND)
             is MediaCommand.SeekBy -> {
                 val position = (snapshot.value.positionMillis + command.offsetMillis).coerceAtLeast(0)
-                player.seek(position / MILLIS_PER_SECOND)
+                player.seekTo(position / MILLIS_PER_SECOND)
             }
             MediaCommand.Next -> player.playlistNext()
             MediaCommand.Previous -> player.playlistPrev()
@@ -223,7 +224,7 @@ class PlaybackCoordinator(
                 currentIndex = state.currentIndex,
                 playWhenReady = resumePlayback && !state.paused
             )
-            result = result.firstErrorOr(player.seek(state.positionMillis / MILLIS_PER_SECOND))
+            result = result.firstErrorOr(player.seekTo(state.positionMillis / MILLIS_PER_SECOND))
             result = result.firstErrorOr(player.setSpeed(state.speed))
             result = result.firstErrorOr(applyRepeatMode(state.repeatMode))
             result = result.firstErrorOr(applyShuffle(state.shuffleEnabled))
@@ -247,9 +248,9 @@ class PlaybackCoordinator(
         persistPlaybackState()
         closed = true
 
-        if (started) {
-            player.mpv.removeEventListener(eventListener)
-            SERVICE_OBSERVED_PROPERTIES.forEach(player.mpv::removePropertyObservation)
+        if (playerInitialized) {
+            player.removeEventListener(eventListener)
+            COORDINATOR_OBSERVED_PROPERTIES.forEach(player::removePropertyObservation)
         }
         hasActiveFile = false
         stopRequested = false
@@ -264,7 +265,8 @@ class PlaybackCoordinator(
         mediaIntegration.updatePlaybackState(disposed)
         mediaIntegration.updateMetadata(null)
         mediaIntegration.deactivate()
-        player.dispose()
+        player.terminate()
+        playerInitialized = false
     }
 
     private fun handleMpvEvent(event: MpvEvent) {
@@ -458,20 +460,18 @@ private const val LOOP_PLAYLIST = "loop-playlist"
 private const val MPV_INFINITE = "inf"
 private const val MPV_DISABLED = "no"
 
-private val SERVICE_OBSERVED_PROPERTIES = listOf(PLAYLIST_POSITION, LOOP_FILE, LOOP_PLAYLIST)
+private val COORDINATOR_OBSERVED_PROPERTIES = listOf(
+    MpvAudioProperties.VOLUME,
+    MpvPlaybackProperties.PAUSE,
+    MpvPlaybackProperties.SPEED,
+    MpvPlaybackProperties.TIME_POSITION,
+    MpvPlaybackProperties.DURATION,
+    PLAYLIST_POSITION,
+    LOOP_FILE,
+    LOOP_PLAYLIST
+)
 
 private fun Int.firstErrorOr(next: Int): Int = if (this < 0) this else next
-
-private fun MpvPlayerState.toPlaybackStatus(): PlaybackStatus = when (this) {
-    MpvPlayerState.Idle -> PlaybackStatus.Idle
-    MpvPlayerState.Loading -> PlaybackStatus.Loading
-    MpvPlayerState.Playing -> PlaybackStatus.Playing
-    MpvPlayerState.Paused -> PlaybackStatus.Paused
-    MpvPlayerState.Stopped -> PlaybackStatus.Stopped
-    MpvPlayerState.Ended -> PlaybackStatus.Ended
-    MpvPlayerState.Error -> PlaybackStatus.Error
-    MpvPlayerState.Disposed -> PlaybackStatus.Disposed
-}
 
 private fun String?.toMpvBoolean(): Boolean = this == "yes" || this == "true"
 

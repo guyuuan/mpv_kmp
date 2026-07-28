@@ -6,5 +6,5 @@ object MpvPlaybackProperties {
     const val DURATION = "duration"
     const val SPEED = "speed"
 
-    val ALL: List<String> = listOf(PAUSE, TIME_POSITION, DURATION,SPEED)
+    val ALL: List<String> = listOf(PAUSE, TIME_POSITION, DURATION, SPEED)
 }
