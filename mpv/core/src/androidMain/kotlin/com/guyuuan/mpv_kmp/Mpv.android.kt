@@ -185,4 +185,4 @@ private class AndroidMpv(
     }
 }
 
-actual fun createMpv(): Mpv = AndroidMpv()
+internal actual fun createMpv(): Mpv = AndroidMpv()

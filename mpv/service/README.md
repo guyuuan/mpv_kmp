@@ -1,0 +1,111 @@
+# mpv/service
+
+`mpv/service` 在 `mpv/core` 之上统一播放器所有权、媒体语义、系统命令和播放恢复，同时保留各平台不同的后台机制。设计依据见仓库中的[跨平台后台媒体播放方案调研](../../service/README.md)。
+
+## 公共层
+
+将模块加入 KMP 源集：
+
+```kotlin
+commonMain.dependencies {
+    implementation(projects.mpv.service)
+}
+```
+
+`PlaybackCoordinator` 必须由 Service、应用级对象或桌面应用生命周期持有，不能在播放页面离开组合时销毁。现有 `rememberMpvPlayer()` API 仍保留，适合不需要后台播放的页面；后台播放 UI 应改为使用 `coordinator.player`：
+
+```kotlin
+val coordinator = PlaybackCoordinator(
+    scope = applicationScope,
+    mediaIntegration = platformMediaIntegration,
+    stateStore = platformStateStore
+)
+
+check(coordinator.start())
+coordinator.restoreSavedPlayback()
+coordinator.setQueue(
+    items = listOf(
+        PlaybackMetadata(
+            mediaId = "episode-42",
+            uri = mediaUri,
+            title = "Episode 42",
+            artist = "Example",
+            mediaType = PlaybackMediaType.Audio
+        )
+    )
+)
+```
+
+`DesktopPlaybackStateStore` 使用对应系统的用户数据目录和原子文件替换，不受 Java Preferences 单值大小限制。
+
+Compose 只绑定播放器，不负责关闭它：
+
+```kotlin
+MpvComposeView(state = coordinator.player)
+```
+
+在真正退出平台级所有者时调用 `coordinator.close()`。队列、索引、位置、速度、循环、随机和暂停状态会先写入配置的 `PlaybackStateStore`；定期状态变化也会以 1 秒防抖保存。默认恢复不会自动播放，只有用户明确允许时才调用 `restoreSavedPlayback(resumePlayback = true)`。
+
+## Android
+
+模块清单已声明前台媒体播放权限和 `MpvMediaSessionService`。默认 Service 持有 libmpv、`MediaSession`、`SimpleBasePlayer` 适配器、音频焦点和耳机断开监听，并使用 `AndroidPlaybackStateStore` 恢复上次队列。
+
+应用可直接通过 `SessionToken`/`MediaController` 连接该 Service，也可继承它并覆盖 `createPlaybackCoordinator()` 注入自己的配置。系统或控制器提供队列时，`MpvMedia3Player` 会将所有 `MediaItem` 转成 `PlaybackMetadata`，再统一交给 coordinator。
+
+Android 端要求：
+
+- 运行时使用 Media3 控制器启动并连接播放会话；
+- Android 13 及以上按应用场景请求通知权限；
+- 自定义 Service 时在应用 Manifest 中声明子类，并避免同时启用基类和子类两个媒体会话服务。
+
+## iOS
+
+应用级所有者应组合：
+
+```kotlin
+PlaybackCoordinator(
+    scope = applicationScope,
+    mediaIntegration = IosNowPlayingMediaIntegration(customArtworkLoader),
+    stateStore = IosPlaybackStateStore()
+)
+```
+
+`IosNowPlayingMediaIntegration` 管理 `AVAudioSession`、Now Playing、远程命令、音频中断和输出路由变化。默认封面加载器支持字节数据；网络或应用私有 URI 应通过 `IosArtworkLoader` 注入异步加载逻辑。
+
+宿主还必须在 Xcode 的 Background Modes 中启用 **Audio, AirPlay, and Picture in Picture**。iOS 被终止后不会继续运行；重启时应先展示恢复入口，再由用户操作决定是否播放。
+
+## Desktop JVM
+
+桌面端在应用级作用域创建集成和状态存储：
+
+```kotlin
+val config = DesktopMediaIntegrationConfig(
+    applicationId = "sample_player",
+    identity = "Sample Player",
+    desktopEntry = "sample-player",
+    nativeWindowHandle = windowsHwnd
+)
+val coordinator = PlaybackCoordinator(
+    scope = applicationScope,
+    mediaIntegration = createDesktopMediaIntegration(config),
+    stateStore = DesktopPlaybackStateStore(config.applicationId)
+)
+```
+
+- macOS：JAR 自动携带 x86-64 与 arm64 MediaPlayer 动态桥，支持媒体键、Now Playing 和异步封面 URI；关闭窗口后继续播放时，宿主必须保持应用进程存活。
+- Windows：JAR 在 Windows 构建机上用 MSVC/C++/WinRT 编译 x86-64 SMTC 桥。应传入真实 Win32 `HWND`；未传时仅尝试当前前台窗口。构建需从具备 Windows SDK 和 C++/WinRT 头文件的 Visual Studio Developer 环境运行 Gradle；非标准 SDK 路径可通过 `mpvKmp.cppWinRtIncludeDir` Gradle 属性指定。
+- Linux：通过会话 D-Bus 注册 MPRIS 2，发布属性变化和 seek 信号；宿主需要保持用户态应用进程运行。
+
+macOS/Windows 若需使用外部构建的桥，可设置 `-Dmpv.kmp.service.native.dir=<directory>`。真正退出桌面应用时调用 `close()`；“关闭窗口”和“退出应用”应由宿主定义为不同操作。
+
+## 验证
+
+```shell
+./gradlew --no-daemon --no-configuration-cache \
+  :mpv:service:jvmTest \
+  :mpv:service:compileAndroidMain \
+  :mpv:service:compileKotlinIosSimulatorArm64 \
+  :mpv:service:assemble
+```
+
+Windows SMTC 原生桥必须额外在 Windows x86-64 + Visual Studio/Windows SDK 环境运行 `:mpv:service:compileWindowsX8664SmtcBridge`；该任务在非 Windows 主机上会跳过。
