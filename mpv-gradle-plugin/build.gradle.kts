@@ -23,11 +23,11 @@ gradlePlugin {
 }
 
 tasks.processResources {
-    from(layout.projectDirectory.dir("../mpv/src/iosMain/nativeLibs")) {
+    from(layout.projectDirectory.dir("../mpv/core/src/iosMain/nativeLibs")) {
         include("**/lib*.dylib")
         into("com/guyuuan/mpv_kmp/nativeLibs")
     }
-    from(layout.projectDirectory.dir("../mpv/src/jvmMain/resources")) {
+    from(layout.projectDirectory.dir("../mpv/core/src/jvmMain/resources")) {
         include("*/*")
         into("com/guyuuan/mpv_kmp/desktopNativeLibs")
     }

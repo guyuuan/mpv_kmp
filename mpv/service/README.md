@@ -9,10 +9,11 @@
 ```kotlin
 commonMain.dependencies {
     implementation(projects.mpv.service)
+    implementation(projects.mpv.compose)
 }
 ```
 
-`PlaybackCoordinator` 必须由 Service、应用级对象或桌面应用生命周期持有，不能在播放页面离开组合时销毁。现有 `rememberMpvPlayer()` API 仍保留，适合不需要后台播放的页面；后台播放 UI 应改为使用 `coordinator.player`：
+`PlaybackCoordinator` 必须由 Service、应用级对象或桌面应用生命周期持有，不能在播放页面离开组合时销毁。`rememberMpvPlayer()` 与 `MpvComposeView` 位于 `mpv/compose`，适合不需要后台播放的页面；后台播放 UI 应改为使用 `coordinator.player`：
 
 ```kotlin
 val coordinator = PlaybackCoordinator(

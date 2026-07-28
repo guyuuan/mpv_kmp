@@ -5,6 +5,7 @@ import com.guyuuan.mpv_kmp.MpvEventType
 import com.guyuuan.mpv_kmp.RenderMode
 import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
+import com.guyuuan.mpv_kmp.props.MpvAudioProperties
 import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -22,12 +23,27 @@ class PlaybackCoordinatorTest {
         val fixture = Fixture()
 
         assertTrue(fixture.coordinator.start())
-        assertSame(fixture.mpv, fixture.coordinator.player.mpv)
+        assertSame(fixture.mpv, fixture.coordinator.player)
         assertFalse(fixture.mpv.terminated)
+        assertTrue(
+            fixture.mpv.observedProperties.containsAll(
+                listOf(
+                    MpvAudioProperties.VOLUME,
+                    MpvPlaybackProperties.PAUSE,
+                    MpvPlaybackProperties.SPEED,
+                    MpvPlaybackProperties.TIME_POSITION,
+                    MpvPlaybackProperties.DURATION,
+                    "playlist-pos",
+                    "loop-file",
+                    "loop-playlist"
+                )
+            )
+        )
 
         fixture.coordinator.close()
 
         assertTrue(fixture.mpv.terminated)
+        assertEquals(fixture.mpv.observedProperties, fixture.mpv.removedProperties)
         assertEquals(PlaybackStatus.Disposed, fixture.coordinator.snapshot.value.status)
         assertEquals(1, fixture.integration.deactivateCount)
         fixture.coordinator.close()
@@ -220,6 +236,8 @@ class PlaybackCoordinatorTest {
         val properties = mutableMapOf<String, String>()
         val commands = mutableListOf<String>()
         val addedUris = mutableListOf<String>()
+        val observedProperties = mutableListOf<String>()
+        val removedProperties = mutableListOf<String>()
 
         fun emit(event: MpvEvent) {
             listeners.toList().forEach { it(event) }
@@ -254,8 +272,12 @@ class PlaybackCoordinatorTest {
             return 0
         }
         override fun setCoroutineScope(scope: CoroutineScope) = Unit
-        override fun observeProperty(name: String) = Unit
-        override fun removePropertyObservation(name: String) = Unit
+        override fun observeProperty(name: String) {
+            observedProperties += name
+        }
+        override fun removePropertyObservation(name: String) {
+            removedProperties += name
+        }
         override fun play(): Int {
             playCount += 1
             return 0

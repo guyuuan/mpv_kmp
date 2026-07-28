@@ -29,14 +29,14 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 
-internal interface SoftwareRenderContextSupport {
+interface SoftwareRenderContextSupport {
     fun createSoftwareRenderContext(): Boolean
     fun freeRenderContext()
     fun render(width: Int, height: Int, stride: Int, format: String, buffer: Pointer)
     fun setRenderCallback(callback: () -> Unit)
 }
 
-internal interface HardwareRenderSupport {
+interface HardwareRenderSupport {
     fun createHardwareRenderContext(): Boolean
     fun render(fbo: Int, width: Int, height: Int)
     fun freeOpenGlRenderContext()

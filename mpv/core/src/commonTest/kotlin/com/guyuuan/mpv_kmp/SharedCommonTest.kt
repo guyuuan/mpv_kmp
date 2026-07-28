@@ -3,7 +3,6 @@ package com.guyuuan.mpv_kmp
 import com.guyuuan.mpv_kmp.data.MpvAudioDecoderInfo
 import com.guyuuan.mpv_kmp.data.MpvAudioTrack
 import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
-import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import com.guyuuan.mpv_kmp.data.MpvSubtitleTrack
 import com.guyuuan.mpv_kmp.data.MpvVideoDecoderInfo
@@ -14,14 +13,7 @@ import com.guyuuan.mpv_kmp.props.MpvSubtitleProperties
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlin.test.fail
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 class SharedCommonTest {
 
@@ -54,7 +46,7 @@ class SharedCommonTest {
     @Test
     fun playbackPropertyConstantsExposeMpvNames() {
         assertEquals(
-            listOf("pause", "time-pos", "duration"),
+            listOf("pause", "time-pos", "duration", "speed"),
             MpvPlaybackProperties.ALL
         )
     }
@@ -309,7 +301,7 @@ class SharedCommonTest {
     }
 
     @Test
-    fun absMpvPlayerLoadsConstructorConfig() {
+    fun absMpvLoadsConstructorConfig() {
         val player = FakeMpv(
             properties = emptyMap(),
             config = mapOf(
@@ -328,87 +320,14 @@ class SharedCommonTest {
         )
     }
 
-    @Test
-    fun decoderInfoFlowObservesAndRemovesDecoderPropertiesWithCollectors() = runBlocking {
-        val player = FakeMpv(emptyMap())
-        val playerScope = CoroutineScope(Job())
-        val state = MpvPlayer(player, playerScope)
-        state.setup()
-
-        val job = launch {
-            state.decoderInfoFlow.collect {}
-        }
-        eventually {
-            player.observedProperties.containsAll(MpvDecoderProperties.ALL)
-        }
-
-        job.cancelAndJoin()
-        eventually {
-            player.removedProperties.containsAll(MpvDecoderProperties.ALL)
-        }
-        state.dispose()
-        playerScope.cancel()
-    }
-
-    @Test
-    fun decoderInfoFlowEmitsWhenDecoderPropertyChanges() = runBlocking {
-        val properties = mutableMapOf<String, String?>(
-            MpvDecoderProperties.VIDEO_CODEC to "h264"
-        )
-        val player = FakeMpv(properties)
-        val playerScope = CoroutineScope(Job())
-        val state = MpvPlayer(player, playerScope)
-        val received = mutableListOf<MpvDecoderInfo>()
-        state.setup()
-
-        val job = launch {
-            state.decoderInfoFlow.collect {
-                received += it
-            }
-        }
-        eventually {
-            received.any { it.video.decoderCodec == "h264" }
-        }
-
-        properties[MpvDecoderProperties.VIDEO_CODEC] = "hevc"
-        player.emitEvent(
-            MpvEvent(
-                type = MpvEventType.PropertyChange,
-                name = MpvDecoderProperties.VIDEO_CODEC,
-                value = "hevc"
-            )
-        )
-        eventually {
-            received.any { it.video.decoderCodec == "hevc" }
-        }
-
-        job.cancelAndJoin()
-        state.dispose()
-        playerScope.cancel()
-    }
-
-    private suspend fun eventually(predicate: () -> Boolean) {
-        repeat(100) {
-            if (predicate()) return
-            delay(10)
-        }
-        fail("Condition was not met")
-    }
-
     private class FakeMpv(
         private val properties: Map<String, String?>,
         config: Map<String, String> = emptyMap()
     ) : AbsMpv(config) {
-        val observedProperties = mutableListOf<String>()
-        val removedProperties = mutableListOf<String>()
         val setProperties = mutableMapOf<String, String>()
         val commands = mutableListOf<String>()
         val configOptions = mutableListOf<Pair<String, String>>()
         val externalSubtitleUris = mutableListOf<String>()
-
-        fun emitEvent(event: MpvEvent) {
-            listeners.forEach { it(event) }
-        }
 
         override fun initialize(): Boolean = loadConfig()
         override fun setConfigOption(name: String, value: String): Int {
@@ -435,12 +354,8 @@ class SharedCommonTest {
         override fun seekTo(position: Double): Int = 0
 
         override fun setCoroutineScope(scope: CoroutineScope) = Unit
-        override fun observeProperty(name: String) {
-            observedProperties += name
-        }
-        override fun removePropertyObservation(name: String) {
-            removedProperties += name
-        }
+        override fun observeProperty(name: String) = Unit
+        override fun removePropertyObservation(name: String) = Unit
         override fun play(): Int = 0
         override fun pause(): Int = 0
         override fun stop(): Int = 0
