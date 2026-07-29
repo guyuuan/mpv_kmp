@@ -2,6 +2,9 @@ package com.guyuuan.mpv_kmp
 
 import cnames.structs.mpv_handle
 import cnames.structs.mpv_render_context
+import cnames.structs.__CVBuffer
+import cnames.structs.opaqueCMSampleBuffer
+import cnames.structs.opaqueCMFormatDescription
 import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import com.guyuuan.mpv_kmp.mpv.*
@@ -13,6 +16,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import platform.CoreFoundation.kCFAllocatorDefault
+import platform.CoreMedia.CMVideoFormatDescriptionCreateForImageBuffer
+import platform.CoreVideo.CVPixelBufferGetBaseAddress
+import platform.CoreVideo.CVPixelBufferGetBytesPerRow
+import platform.CoreVideo.CVPixelBufferLockBaseAddress
+import platform.CoreVideo.CVPixelBufferUnlockBaseAddress
 import platform.posix.RTLD_LAZY
 import platform.posix.dlopen
 import platform.posix.dlsym
@@ -24,6 +33,9 @@ interface IosRenderContextSupport {
     fun freeRenderContext()
     fun updateRenderContext(): Boolean
     fun renderGl(width: Int, height: Int, fbo: Int = 0, internalFormat: Int = 0): Int
+    fun createSampleBufferRenderContext(): Boolean
+    fun renderSampleBuffer(width: Int, height: Int): CPointer<opaqueCMSampleBuffer>?
+    fun releaseSampleBuffer(sampleBuffer: CPointer<opaqueCMSampleBuffer>?)
     fun setRenderCallback(callback: () -> Unit)
 }
 
@@ -73,6 +85,7 @@ private class IosMpv(
 
     private var handle: CPointer<mpv_handle>? = null
     private var renderContext: CPointer<mpv_render_context>? = null
+    private var renderContextType: RenderContextType? = null
     private var renderCallbackRef: StableRef<(() -> Unit)>? = null
     private var scope: CoroutineScope? = null
     private var eventJob: Job? = null
@@ -308,7 +321,7 @@ private class IosMpv(
 
     override fun createRenderContext(): Boolean {
         val h = handle ?: return false
-        if (renderContext != null) return true
+        if (renderContext != null) return renderContextType == RenderContextType.OpenGl
 
         return memScoped {
             val api = MPV_RENDER_API_TYPE_OPENGL.cstr.getPointer(this)
@@ -328,6 +341,7 @@ private class IosMpv(
             val result = mpv_render_context_create(out.ptr, h, params)
             if (result == 0) {
                 renderContext = out.value
+                renderContextType = RenderContextType.OpenGl
                 println("IosMpv: OpenGL mpv_render_context_create success")
                 true
             } else {
@@ -343,6 +357,34 @@ private class IosMpv(
         }
     }
 
+    override fun createSampleBufferRenderContext(): Boolean {
+        val h = handle ?: return false
+        if (renderContext != null) return renderContextType == RenderContextType.Software
+
+        return memScoped {
+            val api = MPV_RENDER_API_TYPE_SW.cstr.getPointer(this)
+            val params = allocArray<mpv_render_param>(2)
+            params[0].type = MPV_RENDER_PARAM_API_TYPE
+            params[0].data = api.reinterpret()
+            params[1].type = MPV_RENDER_PARAM_INVALID
+            params[1].data = null
+
+            val out = alloc<CPointerVarOf<CPointer<mpv_render_context>>>()
+            val result = mpv_render_context_create(out.ptr, h, params)
+            if (result == 0) {
+                renderContext = out.value
+                renderContextType = RenderContextType.Software
+                println("IosMpv: software mpv_render_context_create success")
+                true
+            } else {
+                println(
+                    "IosMpv: software mpv_render_context_create failed: $result (${mpvError(result)})"
+                )
+                false
+            }
+        }
+    }
+
     override fun freeRenderContext() {
         val ctx = renderContext
         if (ctx != null) {
@@ -350,6 +392,7 @@ private class IosMpv(
             mpv_render_context_free(ctx)
             renderContext = null
         }
+        renderContextType = null
         renderCallbackRef?.dispose()
         renderCallbackRef = null
     }
@@ -361,6 +404,7 @@ private class IosMpv(
 
     override fun renderGl(width: Int, height: Int, fbo: Int, internalFormat: Int): Int {
         val ctx = renderContext ?: return -1
+        if (renderContextType != RenderContextType.OpenGl) return -1
         if (width <= 0 || height <= 0) return -1
 
         return memScoped {
@@ -391,6 +435,141 @@ private class IosMpv(
         }
     }
 
+    override fun renderSampleBuffer(
+        width: Int,
+        height: Int
+    ): CPointer<opaqueCMSampleBuffer>? {
+        val ctx = renderContext ?: return null
+        if (renderContextType != RenderContextType.Software || width <= 0 || height <= 0) {
+            return null
+        }
+
+        return memScoped {
+            val pixelBufferOut = alloc<CPointerVarOf<CPointer<__CVBuffer>>>()
+            val pixelBufferResult = mpv_kmp_cv_pixel_buffer_create(
+                width = width.toULong(),
+                height = height.toULong(),
+                pixel_buffer_out = pixelBufferOut.ptr
+            )
+            val pixelBuffer = pixelBufferOut.value
+            if (pixelBufferResult != 0 || pixelBuffer == null) {
+                println("IosMpv: CVPixelBufferCreate failed: $pixelBufferResult")
+                return@memScoped null
+            }
+
+            val lockResult = CVPixelBufferLockBaseAddress(pixelBuffer, 0uL)
+            if (lockResult != 0) {
+                mpv_kmp_cf_release(pixelBuffer)
+                println("IosMpv: CVPixelBufferLockBaseAddress failed: $lockResult")
+                return@memScoped null
+            }
+
+            val baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer)
+            val stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
+            val renderResult = if (baseAddress == null) {
+                -1
+            } else {
+                val result = renderSoftware(
+                    context = ctx,
+                    width = width,
+                    height = height,
+                    stride = stride,
+                    destination = baseAddress
+                )
+                if (result == 0) {
+                    // mpv writes all four bytes for bgr0, including its undefined padding byte.
+                    // Core Video interprets that byte as BGRA alpha, so normalize it only after
+                    // rendering; prefilling before render is overwritten and can make the frame
+                    // fully transparent.
+                    mpv_kmp_bgra_make_opaque(
+                        base_address = baseAddress,
+                        bytes_per_row = stride,
+                        width = width,
+                        height = height
+                    )
+                }
+                result
+            }
+            CVPixelBufferUnlockBaseAddress(pixelBuffer, 0uL)
+            if (renderResult != 0) {
+                mpv_kmp_cf_release(pixelBuffer)
+                return@memScoped null
+            }
+
+            val formatDescriptionOut =
+                alloc<CPointerVarOf<CPointer<opaqueCMFormatDescription>>>()
+            val formatResult = CMVideoFormatDescriptionCreateForImageBuffer(
+                allocator = kCFAllocatorDefault,
+                imageBuffer = pixelBuffer,
+                formatDescriptionOut = formatDescriptionOut.ptr
+            )
+            val formatDescription = formatDescriptionOut.value
+            if (formatResult != 0 || formatDescription == null) {
+                mpv_kmp_cf_release(pixelBuffer)
+                println(
+                    "IosMpv: CMVideoFormatDescriptionCreateForImageBuffer failed: $formatResult"
+                )
+                return@memScoped null
+            }
+
+            val sampleBufferOut = alloc<CPointerVarOf<CPointer<opaqueCMSampleBuffer>>>()
+            val sampleResult = mpv_kmp_sample_buffer_create(
+                image_buffer = pixelBuffer,
+                format_description = formatDescription,
+                frame_rate = SAMPLE_BUFFER_FRAME_RATE,
+                sample_buffer_out = sampleBufferOut.ptr
+            )
+            val sampleBuffer = sampleBufferOut.value
+            mpv_kmp_cf_release(formatDescription)
+            mpv_kmp_cf_release(pixelBuffer)
+            if (sampleResult != 0 || sampleBuffer == null) {
+                println("IosMpv: CMSampleBufferCreateForImageBuffer failed: $sampleResult")
+                return@memScoped null
+            }
+
+            sampleBuffer
+        }
+    }
+
+    override fun releaseSampleBuffer(sampleBuffer: CPointer<opaqueCMSampleBuffer>?) {
+        mpv_kmp_cf_release(sampleBuffer)
+    }
+
+    private fun renderSoftware(
+        context: CPointer<mpv_render_context>,
+        width: Int,
+        height: Int,
+        stride: ULong,
+        destination: COpaquePointer
+    ): Int = memScoped {
+        val size = allocArray<IntVar>(2)
+        size[0] = width
+        size[1] = height
+        val format = "bgr0".cstr.getPointer(this)
+        val rowStride = alloc<ULongVar>()
+        rowStride.value = stride
+
+        val params = allocArray<mpv_render_param>(5)
+        params[0].type = MPV_RENDER_PARAM_SW_SIZE
+        params[0].data = size.reinterpret()
+        params[1].type = MPV_RENDER_PARAM_SW_FORMAT
+        params[1].data = format.reinterpret()
+        params[2].type = MPV_RENDER_PARAM_SW_STRIDE
+        params[2].data = rowStride.ptr.reinterpret()
+        params[3].type = MPV_RENDER_PARAM_SW_POINTER
+        params[3].data = destination
+        params[4].type = MPV_RENDER_PARAM_INVALID
+        params[4].data = null
+
+        mpv_render_context_render(context, params).also { result ->
+            if (result != 0) {
+                println(
+                    "IosMpv: software mpv_render_context_render failed: $result (${mpvError(result)})"
+                )
+            }
+        }
+    }
+
     override fun setRenderCallback(callback: () -> Unit) {
         val ctx = renderContext ?: return
         mpv_render_context_set_update_callback(ctx, null, null)
@@ -406,6 +585,13 @@ private class IosMpv(
     private fun mpvError(code: Int): String {
         return mpv_error_string(code)?.toKString() ?: "unknown"
     }
+
+    private enum class RenderContextType {
+        OpenGl,
+        Software
+    }
 }
 
 internal actual fun createMpv(): Mpv = IosMpv()
+
+private const val SAMPLE_BUFFER_FRAME_RATE = 30

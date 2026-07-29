@@ -3,6 +3,7 @@ package com.guyuuan.mpv_kmp.pip
 import androidx.compose.runtime.Composable
 import com.guyuuan.mpv_kmp.MpvPlayer
 import com.guyuuan.mpv_kmp.MpvPlayerCapability
+import com.guyuuan.mpv_kmp.MpvVideoOutput
 import kotlinx.coroutines.flow.StateFlow
 
 enum class PictureInPictureAvailability {
@@ -36,6 +37,7 @@ interface PictureInPictureController {
 class PipMpvPlayer internal constructor(
     private val delegate: MpvPlayer,
     val pictureInPicture: PictureInPictureController,
+    override val videoOutput: MpvVideoOutput = delegate.videoOutput,
     private val release: () -> Unit = { pictureInPicture.close() }
 ) : MpvPlayer by delegate {
     override val capabilities: Set<MpvPlayerCapability> =
