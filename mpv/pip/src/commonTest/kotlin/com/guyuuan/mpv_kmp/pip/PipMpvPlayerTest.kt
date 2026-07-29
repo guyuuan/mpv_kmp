@@ -8,6 +8,7 @@ import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,6 +49,22 @@ class PipMpvPlayerTest {
         player.close()
 
         assertEquals(1, releaseCount)
+    }
+
+    @Test
+    fun platformCanReplaceDelegatesVideoOutput() {
+        val controller = FakePictureInPictureController(
+            PictureInPictureAvailability.Available
+        )
+        val pipVideoOutput = object : MpvVideoOutput {}
+
+        val player = PipMpvPlayer(
+            delegate = FakePlayer,
+            pictureInPicture = controller,
+            videoOutput = pipVideoOutput
+        )
+
+        assertSame(pipVideoOutput, player.videoOutput)
     }
 
     private object FakePlayer : MpvPlayer {
