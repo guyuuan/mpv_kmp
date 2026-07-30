@@ -9,27 +9,48 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.util.UnstableApi
+import com.guyuuan.mpv_kmp.service.AndroidPlaybackCoordinatorOwner
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 @OptIn(UnstableApi::class)
 @Composable
 actual fun rememberPipMpvPlayer(): PipMpvPlayer {
     val context = LocalContext.current.applicationContext
     val activity = LocalContext.current.findComponentActivity()
+    val coordinator = remember(context) {
+        AndroidPlaybackCoordinatorOwner.coordinator(context)
+    }
+    val mediaSessionConnection = remember(context, activity) {
+        AndroidMediaSessionConnection(context)
+    }
     val pipController = remember(activity) {
         AndroidPictureInPictureController(activity)
     }
-    val mediaPlayer = remember(context, pipController) {
-        AndroidMediaSessionMpvPlayer(
-            context = context,
+    val videoOutput = remember(coordinator, pipController) {
+        AndroidPlaybackCoordinatorVideoOutput(
+            coordinator = coordinator,
             pictureInPictureController = pipController
         )
     }
-    val player = remember(mediaPlayer, pipController) {
+    val mediaPlayer = remember(coordinator, videoOutput) {
+        PlaybackCoordinatorMpvPlayer(
+            coordinator = coordinator,
+            videoOutput = videoOutput,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            onSnapshot = videoOutput::updatePlaybackSnapshot
+        )
+    }
+    val player = remember(mediaPlayer, videoOutput, mediaSessionConnection, pipController) {
         PipMpvPlayer(
             delegate = mediaPlayer,
             pictureInPicture = pipController,
+            videoOutput = videoOutput,
             release = {
                 mediaPlayer.close()
+                videoOutput.close()
+                mediaSessionConnection.close()
                 pipController.close()
             }
         )

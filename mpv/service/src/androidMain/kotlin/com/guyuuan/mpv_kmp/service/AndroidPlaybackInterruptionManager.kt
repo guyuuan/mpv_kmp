@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -86,7 +87,7 @@ class AndroidPlaybackInterruptionManager(
             IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
-        observationJob = scope.launch {
+        observationJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             coordinator.snapshot
                 .map { it.status }
                 .distinctUntilChanged()

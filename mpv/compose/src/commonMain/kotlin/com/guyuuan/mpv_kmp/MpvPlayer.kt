@@ -104,7 +104,7 @@ interface MpvPlayer {
 
 /**
  * Direct libmpv output used by the local player. Platform renderers keep this internal so remote
- * player implementations never expose the Service-owned libmpv instance to UI code.
+ * player implementations never expose an application-owned libmpv instance to UI code.
  */
 internal class LocalMpvVideoOutput(
     val mpv: Mpv
