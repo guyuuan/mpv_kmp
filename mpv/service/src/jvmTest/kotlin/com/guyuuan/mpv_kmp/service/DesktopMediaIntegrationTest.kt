@@ -1,8 +1,11 @@
 package com.guyuuan.mpv_kmp.service
 
+import java.net.URI
 import java.nio.file.Files
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import org.freedesktop.dbus.DBusPath
@@ -15,6 +18,53 @@ class DesktopMediaIntegrationTest {
         assertEquals(DesktopOperatingSystem.Windows, currentDesktopOperatingSystem("Windows 11"))
         assertEquals(DesktopOperatingSystem.Linux, currentDesktopOperatingSystem("Linux"))
         assertEquals(DesktopOperatingSystem.Unsupported, currentDesktopOperatingSystem("FreeBSD"))
+    }
+
+    @Test
+    fun mprisMaterializesByteArtworkAsAFileUri() {
+        val mpris = MprisObject(
+            config = DesktopMediaIntegrationConfig(
+                applicationId = "artwork_test",
+                identity = "Artwork Test"
+            ),
+            dispatchCommand = {}
+        )
+        val pngBytes = byteArrayOf(
+            0x89.toByte(),
+            0x50,
+            0x4e,
+            0x47,
+            0x0d,
+            0x0a,
+            0x1a,
+            0x0a
+        )
+        val resolvedMetadata = PlaybackMetadata(
+            mediaId = "track-with-bytes",
+            uri = "file:///music/track.flac",
+            title = "Track",
+            artwork = PlaybackArtwork.Bytes(pngBytes)
+        )
+        mpris.updateMetadata(resolvedMetadata)
+        mpris.updateSnapshot(
+            PlaybackSnapshot(
+                metadata = resolvedMetadata.copy(
+                    artwork = PlaybackArtwork.Uri("https://example.test/cover.png")
+                ),
+                status = PlaybackStatus.Playing
+            )
+        )
+
+        @Suppress("UNCHECKED_CAST")
+        val metadata = mpris.GetAll("org.mpris.MediaPlayer2.Player")
+            .unwrapped("Metadata") as Map<String, Variant<*>>
+        val artworkUri = metadata.getValue("mpris:artUrl").value as String
+        val artworkFile = java.nio.file.Path.of(URI(artworkUri))
+        assertTrue(Files.exists(artworkFile))
+        assertContentEquals(pngBytes, Files.readAllBytes(artworkFile))
+
+        mpris.detach()
+        assertFalse(Files.exists(artworkFile))
     }
 
     @Test
@@ -40,6 +90,7 @@ class DesktopMediaIntegrationTest {
             artwork = PlaybackArtwork.Uri("file:///music/cover.jpg"),
             mediaType = PlaybackMediaType.Audio
         )
+        mpris.updateMetadata(metadata)
         mpris.updateSnapshot(
             PlaybackSnapshot(
                 metadata = metadata,

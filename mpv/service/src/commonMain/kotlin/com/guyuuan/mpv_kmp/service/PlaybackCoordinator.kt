@@ -28,10 +28,12 @@ class PlaybackCoordinator(
     mpv: Mpv? = null,
     private val mediaIntegration: PlatformMediaIntegration = NoopPlatformMediaIntegration,
     private val stateStore: PlaybackStateStore? = null,
-    availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS
+    availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
+    artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null
 ) : MediaCommandHandler {
     private val ownsSharedMpv: Boolean = mpv == null
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val artworkLoader: PlaybackArtworkLoader? = artworkLoaderFactory?.create()
     val player: Mpv = mpv ?: Mpv()
 
     private val mutableSnapshot = MutableStateFlow(
@@ -77,7 +79,7 @@ class PlaybackCoordinator(
 
         val status = if (playerInitialized) PlaybackStatus.Idle else PlaybackStatus.Error
         publishSnapshot(snapshot.value.copy(status = status))
-        mediaIntegration.updateMetadata(snapshot.value.metadata)
+        publishMetadata(snapshot.value.metadata)
         return status != PlaybackStatus.Error
     }
 
@@ -116,7 +118,7 @@ class PlaybackCoordinator(
                 queueSize = items.size
             )
         )
-        mediaIntegration.updateMetadata(metadata)
+        publishMetadata(metadata)
         if (result < 0) {
             publishSnapshot(snapshot.value.copy(status = PlaybackStatus.Error))
         }
@@ -130,7 +132,7 @@ class PlaybackCoordinator(
             queue = queue.toMutableList().also { it[index] = metadata }
         }
         publishSnapshot(snapshot.value.copy(metadata = metadata))
-        mediaIntegration.updateMetadata(metadata)
+        publishMetadata(metadata)
     }
 
     fun updateQueuePosition(index: Int?, size: Int) {
@@ -140,7 +142,7 @@ class PlaybackCoordinator(
         publishSnapshot(
             snapshot.value.copy(metadata = metadata, queueIndex = index, queueSize = size)
         )
-        if (metadata != previousMetadata) mediaIntegration.updateMetadata(metadata)
+        if (metadata != previousMetadata) publishMetadata(metadata)
     }
 
     fun updateAvailableCommands(commands: Set<MediaCommandType>) {
@@ -255,10 +257,20 @@ class PlaybackCoordinator(
         persistenceJob?.cancel()
         persistPlaybackState()
         closed = true
+        var cleanupFailure: Throwable? = null
+        fun cleanup(action: () -> Unit) {
+            try {
+                action()
+            } catch (error: Throwable) {
+                if (cleanupFailure == null) cleanupFailure = error
+            }
+        }
 
         if (playerInitialized) {
-            player.removeEventListener(eventListener)
-            COORDINATOR_OBSERVED_PROPERTIES.forEach(player::removePropertyObservation)
+            cleanup { player.removeEventListener(eventListener) }
+            COORDINATOR_OBSERVED_PROPERTIES.forEach { property ->
+                cleanup { player.removePropertyObservation(property) }
+            }
         }
         hasActiveFile = false
         stopRequested = false
@@ -270,16 +282,21 @@ class PlaybackCoordinator(
             durationMillis = 0
         )
         mutableSnapshot.value = disposed
-        mediaIntegration.updatePlaybackState(disposed)
-        mediaIntegration.updateMetadata(null)
-        mediaIntegration.deactivate()
-        if (ownsSharedMpv) {
-            Mpv.release()
-        } else {
-            player.terminate()
+        cleanup { mediaIntegration.updatePlaybackState(disposed) }
+        cleanup { artworkLoader?.clear() }
+        cleanup { mediaIntegration.updateMetadata(null) }
+        cleanup { artworkLoader?.close() }
+        cleanup { mediaIntegration.deactivate() }
+        cleanup {
+            if (ownsSharedMpv) {
+                Mpv.release()
+            } else {
+                player.terminate()
+            }
         }
         playerInitialized = false
         scope.cancel()
+        cleanupFailure?.let { throw it }
     }
 
     private fun handleMpvEvent(event: MpvEvent) {
@@ -330,7 +347,7 @@ class PlaybackCoordinator(
                         val index = event.value?.toDoubleOrNull()?.toInt()
                         if (index != null && index in queue.indices) {
                             val metadata = queue[index]
-                            if (metadata != next.metadata) mediaIntegration.updateMetadata(metadata)
+                            if (metadata != next.metadata) publishMetadata(metadata)
                             next.copy(
                                 metadata = metadata, queueIndex = index, queueSize = queue.size
                             )
@@ -431,6 +448,16 @@ class PlaybackCoordinator(
             mediaIntegration.updatePlaybackState(value)
         }
         schedulePersistence()
+    }
+
+    private fun publishMetadata(metadata: PlaybackMetadata?) {
+        artworkLoader?.clear()
+        mediaIntegration.updateMetadata(metadata)
+        if (metadata != null) {
+            artworkLoader?.load(metadata) { resolved ->
+                if (!closed) mediaIntegration.updateMetadata(resolved)
+            }
+        }
     }
 
     private fun applyRepeatMode(repeatMode: PlaybackRepeatMode): Int {

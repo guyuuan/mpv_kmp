@@ -22,6 +22,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import androidx.core.net.toUri
 
 /** Media3 [Player] adapter driven by platform integration state and media command callbacks. */
 @UnstableApi
@@ -75,8 +76,9 @@ class MpvMedia3Player(
 
     internal fun updatePlaybackState(snapshot: PlaybackSnapshot) {
         scope.launch {
-            if (latestSnapshot == snapshot) return@launch
-            latestSnapshot = snapshot
+            val stateWithPublishedMetadata = snapshot.copy(metadata = latestSnapshot.metadata)
+            if (latestSnapshot == stateWithPublishedMetadata) return@launch
+            latestSnapshot = stateWithPublishedMetadata
             invalidateState()
         }
     }
@@ -117,8 +119,11 @@ class MpvMedia3Player(
             builder.setVideoSize(VideoSize(snapshot.videoWidth, snapshot.videoHeight))
         }
 
+        val publishedMetadata = snapshot.metadata
         val queue = coordinator?.queueItems.orEmpty().ifEmpty {
-            snapshot.metadata?.let(::listOf).orEmpty()
+            publishedMetadata?.let(::listOf).orEmpty()
+        }.map { metadata ->
+            publishedMetadata?.takeIf { it.mediaId == metadata.mediaId } ?: metadata
         }
         if (queue.isNotEmpty()) {
             val currentIndex = snapshot.queueIndex?.takeIf { it in queue.indices } ?: 0
@@ -365,7 +370,7 @@ private fun PlaybackMetadata.toMediaItem(): MediaItem {
         .setAlbumTitle(albumTitle)
         .also { builder ->
             when (val value = artwork) {
-                is PlaybackArtwork.Uri -> builder.setArtworkUri(Uri.parse(value.value))
+                is PlaybackArtwork.Uri -> builder.setArtworkUri(value.value.toUri())
                 is PlaybackArtwork.Bytes -> builder.setArtworkData(
                     value.toByteArray(),
                     MediaMetadata.PICTURE_TYPE_FRONT_COVER

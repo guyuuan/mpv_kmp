@@ -58,11 +58,18 @@ import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 
 /** Asynchronously supplies iOS artwork. The completion may be called from any queue. */
+@Deprecated(
+    message = "Use PlaybackArtworkLoaderFactory on PlaybackCoordinator for URI loading."
+)
 fun interface IosArtworkLoader {
     fun load(artwork: PlaybackArtwork, completion: (UIImage?) -> Unit)
 }
 
 /** Supports in-memory artwork and lets applications provide their own URI loader when needed. */
+@Deprecated(
+    message = "Use PlaybackArtworkLoaderFactory on PlaybackCoordinator for URI loading."
+)
+@Suppress("DEPRECATION")
 object DefaultIosArtworkLoader : IosArtworkLoader {
     override fun load(artwork: PlaybackArtwork, completion: (UIImage?) -> Unit) {
         val image = when (artwork) {
@@ -76,7 +83,10 @@ object DefaultIosArtworkLoader : IosArtworkLoader {
 /**
  * iOS media bridge for background audio, Now Playing, remote commands, interruptions, and route
  * changes. The host app must also enable the Audio/AirPlay/Picture in Picture background mode.
+ * New code should provide a [PlaybackArtworkLoaderFactory] to [PlaybackCoordinator]; the resulting
+ * [PlaybackArtwork.Bytes] are decoded here without exposing UIKit to common code.
  */
+@Suppress("DEPRECATION")
 class IosNowPlayingMediaIntegration(
     private val artworkLoader: IosArtworkLoader = DefaultIosArtworkLoader
 ) : PlatformMediaIntegration {

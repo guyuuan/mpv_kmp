@@ -10,6 +10,10 @@ fun interface MediaCommandHandler {
  * Implementations publish player state outward and route system commands back through the
  * supplied [MediaCommandHandler]. They must release every callback and native resource from
  * [deactivate].
+ *
+ * [updateMetadata] and [updatePlaybackState] are independent channels. Implementations must keep
+ * the latest explicitly published metadata when a later snapshot still contains the coordinator's
+ * original metadata, for example after URI artwork has been resolved to bytes.
  */
 interface PlatformMediaIntegration {
     fun activate(commandHandler: MediaCommandHandler)

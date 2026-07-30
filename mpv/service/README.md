@@ -17,7 +17,15 @@ commonMain.dependencies {
 ```kotlin
 val coordinator = PlaybackCoordinator(
     mediaIntegration = platformMediaIntegration,
-    stateStore = platformStateStore
+    stateStore = platformStateStore,
+    artworkLoaderFactory = PlaybackArtworkLoaderFactory {
+        object : AbstractPlaybackArtworkLoader() {
+            override suspend fun loadBytes(artwork: PlaybackArtwork.Uri): ByteArray? =
+                httpClient.get(artwork.value)
+                    .body<ByteArray>()
+                    .takeIf(ByteArray::isNotEmpty)
+        }
+    }
 )
 
 check(coordinator.start())
@@ -34,6 +42,14 @@ coordinator.setQueue(
     )
 )
 ```
+
+`PlaybackArtworkLoaderFactory` 为每个 `PlaybackCoordinator` 创建且只创建一个 loader。
+`AbstractPlaybackArtworkLoader` 位于 `commonMain`，统一实现异步调度、取消旧请求、过期结果
+过滤和异常回退，应用只需实现 `loadBytes()`。它不缓存历史封面：切换媒体时旧请求和引用
+立即释放，返回的编码图片字节只发布给平台媒体集成，不会替换公开 snapshot 或持久化队列
+中的原始 URI。模块本身不绑定 HTTP 客户端；应用既可以在 `commonMain` 复用网络实现，
+也可以在 `androidMain`、`iosMain` 或 `jvmMain` 中处理鉴权和私有 URI。返回 `null`、空数组
+或抛出普通加载异常时继续使用原始 URI。
 
 `DesktopPlaybackStateStore` 使用对应系统的用户数据目录和原子文件替换，不受 Java Preferences 单值大小限制。
 
@@ -61,12 +77,13 @@ Android 端要求：
 
 ```kotlin
 PlaybackCoordinator(
-    mediaIntegration = IosNowPlayingMediaIntegration(customArtworkLoader),
-    stateStore = IosPlaybackStateStore()
+    mediaIntegration = IosNowPlayingMediaIntegration(),
+    stateStore = IosPlaybackStateStore(),
+    artworkLoaderFactory = customArtworkLoaderFactory
 )
 ```
 
-`IosNowPlayingMediaIntegration` 管理 `AVAudioSession`、Now Playing、远程命令、音频中断和输出路由变化。默认封面加载器支持字节数据；网络或应用私有 URI 应通过 `IosArtworkLoader` 注入异步加载逻辑。
+`IosNowPlayingMediaIntegration` 管理 `AVAudioSession`、Now Playing、远程命令、音频中断和输出路由变化。公共 loader 将网络或私有 URI 解析成字节后，iOS 集成负责转换为 `UIImage`。原有 `IosArtworkLoader` 构造参数暂时保留用于源码兼容，但已弃用；新代码应统一向 `PlaybackCoordinator` 注入 `PlaybackArtworkLoaderFactory`。
 
 宿主还必须在 Xcode 的 Background Modes 中启用 **Audio, AirPlay, and Picture in Picture**。iOS 被终止后不会继续运行；重启时应先展示恢复入口，再由用户操作决定是否播放。
 
@@ -89,7 +106,7 @@ val coordinator = PlaybackCoordinator(
 
 - macOS：JAR 自动携带 x86-64 与 arm64 MediaPlayer 动态桥，支持媒体键、Now Playing 和异步封面 URI；关闭窗口后继续播放时，宿主必须保持应用进程存活。
 - Windows：JAR 在 Windows 构建机上用 MSVC/C++/WinRT 编译 x86-64 SMTC 桥。应传入真实 Win32 `HWND`；未传时仅尝试当前前台窗口。构建需从具备 Windows SDK 和 C++/WinRT 头文件的 Visual Studio Developer 环境运行 Gradle；非标准 SDK 路径可通过 `mpvKmp.cppWinRtIncludeDir` Gradle 属性指定。
-- Linux：通过会话 D-Bus 注册 MPRIS 2，发布属性变化和 seek 信号；宿主需要保持用户态应用进程运行。
+- Linux：通过会话 D-Bus 注册 MPRIS 2，发布属性变化和 seek 信号；公共 loader 返回的字节会写入临时图片文件并以 `mpris:artUrl` 发布，切换封面或停用集成时删除；宿主需要保持用户态应用进程运行。
 
 macOS/Windows 若需使用外部构建的桥，可设置 `-Dmpv.kmp.service.native.dir=<directory>`。真正退出桌面应用时调用 `close()`；“关闭窗口”和“退出应用”应由宿主定义为不同操作。
 
