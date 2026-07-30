@@ -34,7 +34,9 @@ enum class PictureInPictureAvailability {
 
 enum class PictureInPictureState {
     Inactive,
-    Active
+    Active,
+    /** The platform has started preparing or animating the transition into PiP. */
+    Entering
 }
 
 /**

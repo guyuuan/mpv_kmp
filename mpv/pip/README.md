@@ -49,7 +49,11 @@ MpvComposeView(player = player)
 
 Activity 必须继承 `ComponentActivity`。模块使用 `androidx.core:core-pip` 的
 `VideoPlaybackPictureInPicture` 跟踪播放器 View，并在播放期间启用 Android 12+
-自动进入 PiP；`requestStart()` 可用于用户显式触发，Android 不提供直接退出 PiP 的 API。
+自动进入 PiP。用户显式触发时，以及 Android 15+ 发出系统进入动画事件时，`state`
+会先变为 `PictureInPictureState.Entering`，宿主可提前隐藏播放器覆盖层；进入完成后
+再变为 `Active`。`requestStart()` 会等待播放器 View 完成当前布局、刷新
+`sourceRectHint` 后再进入，避免全屏画面先消失再出现小窗。Android 不提供直接退出 PiP
+的 API。
 
 需要自定义状态存储、命令集合或封面加载器时，应在 `Application.onCreate` 中、首次调用
 `rememberPipMpvPlayer()` 之前配置进程级 owner：
