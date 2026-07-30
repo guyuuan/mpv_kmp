@@ -1,5 +1,7 @@
 package com.guyuuan.mpv_kmp.service
 
+import java.nio.file.Files
+import java.nio.file.Path
 import java.security.MessageDigest
 import org.freedesktop.dbus.DBusPath
 import org.freedesktop.dbus.annotations.DBusInterfaceName
@@ -131,30 +133,36 @@ internal class MprisObject(
     private var metadata: PlaybackMetadata? = null
     @Volatile
     private var snapshot = PlaybackSnapshot()
+    @Volatile
+    private var artworkFile: Path? = null
 
     fun attach(connection: DBusConnection) {
         this.connection = connection
         emitPlayerProperties(playerProperties().keys)
     }
 
+    @Synchronized
     fun detach() {
         connection = null
+        clearArtworkFile()
     }
 
+    @Synchronized
     fun updateMetadata(metadata: PlaybackMetadata?) {
         if (this.metadata == metadata) return
+        updateArtworkFile(metadata)
         this.metadata = metadata
         emitPlayerProperties(setOf("Metadata"))
     }
 
+    @Synchronized
     fun updateSnapshot(state: PlaybackSnapshot) {
         val previous = snapshot
         snapshot = state
-        if (metadata != state.metadata) metadata = state.metadata
 
         val changed = buildSet {
             if (previous.status != state.status) add("PlaybackStatus")
-            if (previous.metadata != state.metadata || previous.durationMillis != state.durationMillis) {
+            if (previous.durationMillis != state.durationMillis) {
                 add("Metadata")
             }
             if (previous.speed != state.speed) add("Rate")
@@ -312,10 +320,34 @@ internal class MprisObject(
             put("xesam:title", Variant(value.title))
             value.artist?.let { put("xesam:artist", Variant(listOf(it), "as")) }
             value.albumTitle?.let { put("xesam:album", Variant(it)) }
-            (value.artwork as? PlaybackArtwork.Uri)?.let {
-                put("mpris:artUrl", Variant(it.value))
+            when (val artwork = value.artwork) {
+                is PlaybackArtwork.Uri -> put("mpris:artUrl", Variant(artwork.value))
+                is PlaybackArtwork.Bytes -> artworkFile?.let {
+                    put("mpris:artUrl", Variant(it.toUri().toString()))
+                }
+                null -> Unit
             }
         }
+    }
+
+    private fun updateArtworkFile(metadata: PlaybackMetadata?) {
+        clearArtworkFile()
+        val bytes = (metadata?.artwork as? PlaybackArtwork.Bytes)?.toByteArray() ?: return
+        val file = runCatching {
+            Files.createTempFile(MPRIS_ARTWORK_PREFIX, bytes.imageFileSuffix())
+        }.getOrNull() ?: return
+        artworkFile = runCatching {
+            Files.write(file, bytes)
+            file.toFile().deleteOnExit()
+            file
+        }.onFailure {
+            runCatching { Files.deleteIfExists(file) }
+        }.getOrNull()
+    }
+
+    private fun clearArtworkFile() {
+        artworkFile?.let { file -> runCatching { Files.deleteIfExists(file) } }
+        artworkFile = null
     }
 
     private fun currentTrackId(): DBusPath {
@@ -379,8 +411,34 @@ private fun Long.toMicros(): Long = this * 1_000L
 
 private fun Long.fromMicros(): Long = this / 1_000L
 
+private fun ByteArray.imageFileSuffix(): String = when {
+    size >= 4 &&
+        this[0] == 0x89.toByte() &&
+        this[1] == 0x50.toByte() &&
+        this[2] == 0x4e.toByte() &&
+        this[3] == 0x47.toByte() -> ".png"
+
+    size >= 3 &&
+        this[0] == 0xff.toByte() &&
+        this[1] == 0xd8.toByte() &&
+        this[2] == 0xff.toByte() -> ".jpg"
+
+    size >= 4 &&
+        this[0] == 'G'.code.toByte() &&
+        this[1] == 'I'.code.toByte() &&
+        this[2] == 'F'.code.toByte() &&
+        this[3] == '8'.code.toByte() -> ".gif"
+
+    size >= 12 &&
+        decodeToString(0, 4) == "RIFF" &&
+        decodeToString(8, 12) == "WEBP" -> ".webp"
+
+    else -> ".img"
+}
+
 private const val MPRIS_BUS_PREFIX = "org.mpris.MediaPlayer2"
 private const val MPRIS_OBJECT_PATH = "/org/mpris/MediaPlayer2"
+private const val MPRIS_ARTWORK_PREFIX = "mpv-kmp-mpris-artwork-"
 private const val MPRIS_ROOT_INTERFACE = "org.mpris.MediaPlayer2"
 private const val MPRIS_PLAYER_INTERFACE = "org.mpris.MediaPlayer2.Player"
 private const val TRACK_OBJECT_PREFIX = "/org/mpris/MediaPlayer2/track"

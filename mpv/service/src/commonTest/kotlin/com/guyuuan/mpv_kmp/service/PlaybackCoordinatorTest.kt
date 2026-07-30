@@ -10,9 +10,18 @@ import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 class PlaybackCoordinatorTest {
     @Test
@@ -193,9 +202,192 @@ class PlaybackCoordinatorTest {
         fixture.close()
     }
 
+    @Test
+    fun uriArtworkIsResolvedWithoutPlatformImageTypes() = runBlocking {
+        val requestedArtwork = CompletableDeferred<PlaybackArtwork.Uri>()
+        val response = CompletableDeferred<ByteArray?>()
+        var loaderCloseCount = 0
+        val loader = object : AbstractPlaybackArtworkLoader() {
+            override suspend fun loadBytes(artwork: PlaybackArtwork.Uri): ByteArray? {
+                requestedArtwork.complete(artwork)
+                return response.await()
+            }
+
+            override fun onClosed() {
+                loaderCloseCount += 1
+            }
+        }
+        var factoryCreateCount = 0
+        val factory = PlaybackArtworkLoaderFactory {
+            factoryCreateCount += 1
+            loader
+        }
+        val fixture = Fixture(artworkLoaderFactory = factory)
+        assertEquals(1, factoryCreateCount)
+        fixture.coordinator.start()
+        fixture.coordinator.start()
+        assertEquals(1, factoryCreateCount)
+        val artwork = PlaybackArtwork.Uri("https://example.test/cover.jpg")
+        val metadata = PlaybackMetadata(
+            mediaId = "episode-with-artwork",
+            uri = "https://example.test/episode.mp3",
+            title = "Episode",
+            artwork = artwork
+        )
+
+        fixture.coordinator.load(metadata)
+
+        assertEquals(artwork, withTimeout(5_000) { requestedArtwork.await() })
+        assertEquals(metadata, fixture.integration.metadata.last())
+
+        val bytes = byteArrayOf(1, 2, 3, 4)
+        response.complete(bytes)
+        val resolved = withTimeout(5_000) { fixture.integration.resolvedMetadata.await() }
+        assertEquals(PlaybackArtwork.Bytes(bytes), resolved.artwork)
+
+        fixture.mpv.emit(
+            MpvEvent(
+                type = MpvEventType.PropertyChange,
+                name = MpvPlaybackProperties.SPEED,
+                value = "1.25"
+            )
+        )
+        assertEquals(
+            artwork,
+            fixture.integration.states.last().metadata?.artwork
+        )
+        assertEquals(artwork, fixture.coordinator.snapshot.value.metadata?.artwork)
+        fixture.close()
+        fixture.close()
+        assertEquals(1, loaderCloseCount)
+    }
+
+    @Test
+    fun obsoleteArtworkRequestIsCancelledBeforeItCanReplaceCurrentMedia() = runBlocking {
+        val firstStarted = CompletableDeferred<Unit>()
+        val firstCancelled = CompletableDeferred<Unit>()
+        val secondBytes = byteArrayOf(5, 6, 7, 8)
+        val loader = object : AbstractPlaybackArtworkLoader() {
+            override suspend fun loadBytes(artwork: PlaybackArtwork.Uri): ByteArray? {
+                return if (artwork.value.endsWith("first.jpg")) {
+                    firstStarted.complete(Unit)
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        firstCancelled.complete(Unit)
+                    }
+                } else {
+                    secondBytes
+                }
+            }
+        }
+        val fixture = Fixture(
+            artworkLoaderFactory = PlaybackArtworkLoaderFactory { loader }
+        )
+        fixture.coordinator.start()
+        val first = PlaybackMetadata(
+            mediaId = "first",
+            uri = "https://example.test/first.mp3",
+            title = "First",
+            artwork = PlaybackArtwork.Uri("https://example.test/first.jpg")
+        )
+        val second = PlaybackMetadata(
+            mediaId = "second",
+            uri = "https://example.test/second.mp3",
+            title = "Second",
+            artwork = PlaybackArtwork.Uri("https://example.test/second.jpg")
+        )
+
+        fixture.coordinator.load(first)
+        withTimeout(5_000) { firstStarted.await() }
+        fixture.coordinator.updateMetadata(second)
+
+        withTimeout(5_000) { firstCancelled.await() }
+        val resolved = withTimeout(5_000) { fixture.integration.resolvedMetadata.await() }
+        assertEquals("second", resolved.mediaId)
+        assertEquals(PlaybackArtwork.Bytes(secondBytes), resolved.artwork)
+        assertFalse(
+            fixture.integration.metadata.any {
+                it?.mediaId == "first" && it.artwork is PlaybackArtwork.Bytes
+            }
+        )
+        fixture.close()
+    }
+
+    @Test
+    fun artworkResultDeliveryIsSerializedWithRequestReplacement() = runBlocking {
+        val firstCallbackStarted = CompletableDeferred<Unit>()
+        val releaseFirstCallback = CompletableDeferred<Unit>()
+        val secondDelivered = CompletableDeferred<Unit>()
+        val loader = object : AbstractPlaybackArtworkLoader() {
+            override suspend fun loadBytes(artwork: PlaybackArtwork.Uri): ByteArray =
+                if (artwork.value.endsWith("first.jpg")) {
+                    byteArrayOf(1)
+                } else {
+                    byteArrayOf(2)
+                }
+        }
+        val first = PlaybackMetadata(
+            mediaId = "first",
+            uri = "file:///first.mp3",
+            title = "First",
+            artwork = PlaybackArtwork.Uri("https://example.test/first.jpg")
+        )
+        val second = PlaybackMetadata(
+            mediaId = "second",
+            uri = "file:///second.mp3",
+            title = "Second",
+            artwork = PlaybackArtwork.Uri("https://example.test/second.jpg")
+        )
+
+        loader.load(first) {
+            firstCallbackStarted.complete(Unit)
+            runBlocking { releaseFirstCallback.await() }
+        }
+        withTimeout(5_000) { firstCallbackStarted.await() }
+        val replaceRequest = async(Dispatchers.Default) {
+            loader.load(second) { secondDelivered.complete(Unit) }
+        }
+
+        val deliveredBeforeFirstCallbackFinished = withTimeoutOrNull(100) {
+            secondDelivered.await()
+        }
+        releaseFirstCallback.complete(Unit)
+        replaceRequest.await()
+        withTimeout(5_000) { secondDelivered.await() }
+
+        assertNull(deliveredBeforeFirstCallbackFinished)
+        loader.close()
+    }
+
+    @Test
+    fun loaderCloseFailureDoesNotSkipCoordinatorCleanup() {
+        val loader = object : AbstractPlaybackArtworkLoader() {
+            override suspend fun loadBytes(artwork: PlaybackArtwork.Uri): ByteArray? = null
+
+            override fun onClosed() {
+                error("Loader close failed")
+            }
+        }
+        val fixture = Fixture(
+            artworkLoaderFactory = PlaybackArtworkLoaderFactory { loader }
+        )
+        fixture.coordinator.start()
+
+        val failure = assertFailsWith<IllegalStateException> {
+            fixture.coordinator.close()
+        }
+
+        assertEquals("Loader close failed", failure.message)
+        assertTrue(fixture.coordinator.isClosed)
+        assertTrue(fixture.mpv.terminated)
+        assertEquals(1, fixture.integration.deactivateCount)
+    }
+
     private class Fixture(
         availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
-        stateStore: PlaybackStateStore? = null
+        stateStore: PlaybackStateStore? = null,
+        artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null
     ) {
         val mpv = FakeMpv()
         val integration = RecordingIntegration()
@@ -203,7 +395,8 @@ class PlaybackCoordinatorTest {
             mpv = mpv,
             mediaIntegration = integration,
             stateStore = stateStore,
-            availableCommands = availableCommands
+            availableCommands = availableCommands,
+            artworkLoaderFactory = artworkLoaderFactory
         )
 
         fun close() {
@@ -215,6 +408,7 @@ class PlaybackCoordinatorTest {
         lateinit var handler: MediaCommandHandler
         val metadata = mutableListOf<PlaybackMetadata?>()
         val states = mutableListOf<PlaybackSnapshot>()
+        val resolvedMetadata = CompletableDeferred<PlaybackMetadata>()
         var deactivateCount = 0
 
         override fun activate(commandHandler: MediaCommandHandler) {
@@ -223,6 +417,9 @@ class PlaybackCoordinatorTest {
 
         override fun updateMetadata(metadata: PlaybackMetadata?) {
             this.metadata += metadata
+            if (metadata?.artwork is PlaybackArtwork.Bytes) {
+                resolvedMetadata.complete(metadata)
+            }
         }
 
         override fun updatePlaybackState(state: PlaybackSnapshot) {
