@@ -69,6 +69,15 @@ class PipMpvPlayer internal constructor(
 
     private var closed = false
 
+    /**
+     * Requests an immediate, user-initiated transition into picture-in-picture.
+     *
+     * A `true` result means the platform accepted or scheduled the request. Observe
+     * [PictureInPictureController.state] through [pictureInPicture] for the completed transition.
+     */
+    fun enterPictureInPicture(): Boolean =
+        if (closed) false else pictureInPicture.requestStart()
+
     fun close() {
         if (closed) return
         closed = true
