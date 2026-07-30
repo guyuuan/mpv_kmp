@@ -51,7 +51,8 @@ Activity 必须继承 `ComponentActivity`。模块使用 `androidx.core:core-pip
 `VideoPlaybackPictureInPicture` 跟踪播放器 View，并在播放期间启用 Android 12+
 自动进入 PiP。用户显式触发时，以及 Android 15+ 发出系统进入动画事件时，`state`
 会先变为 `PictureInPictureState.Entering`，宿主可提前隐藏播放器覆盖层；进入完成后
-再变为 `Active`。`requestStart()` 会等待播放器 View 完成当前布局、刷新
+再变为 `Active`。用户点击 PiP 按钮时可直接调用 `player.enterPictureInPicture()`；
+Android 会等待播放器 View 完成当前布局、刷新
 `sourceRectHint` 后再进入，避免全屏画面先消失再出现小窗。Android 不提供直接退出 PiP
 的 API。
 

@@ -55,6 +55,23 @@ class PipMpvPlayerTest {
     }
 
     @Test
+    fun userCanRequestPictureInPictureThroughPlayer() {
+        val controller = FakePictureInPictureController(
+            availability = PictureInPictureAvailability.Available,
+            requestStartResult = true
+        )
+        val player = PipMpvPlayer(FakePlayer, controller)
+
+        assertTrue(player.enterPictureInPicture())
+        assertEquals(1, controller.requestStartCount)
+
+        player.close()
+
+        assertFalse(player.enterPictureInPicture())
+        assertEquals(1, controller.requestStartCount)
+    }
+
+    @Test
     fun platformCanReplaceDelegatesVideoOutput() {
         val controller = FakePictureInPictureController(
             PictureInPictureAvailability.Available
@@ -109,16 +126,22 @@ class PipMpvPlayerTest {
     }
 
     private class FakePictureInPictureController(
-        availability: PictureInPictureAvailability
+        availability: PictureInPictureAvailability,
+        private val requestStartResult: Boolean = false
     ) : PictureInPictureController {
         override val availability: StateFlow<PictureInPictureAvailability> =
             MutableStateFlow(availability)
         override val state: StateFlow<PictureInPictureState> =
             MutableStateFlow(PictureInPictureState.Inactive)
+        var requestStartCount = 0
+            private set
 
         override fun setEligible(eligible: Boolean) = Unit
         override fun setAspectRatio(width: Int, height: Int) = Unit
-        override fun requestStart(): Boolean = false
+        override fun requestStart(): Boolean {
+            requestStartCount++
+            return requestStartResult
+        }
         override fun requestStop(): Boolean = false
         override fun close() = Unit
     }
