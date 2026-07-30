@@ -11,21 +11,11 @@ import androidx.compose.runtime.remember
 import cnames.structs.opaqueCMSampleBuffer
 import com.guyuuan.mpv_kmp.IosMpvVideoOutput
 import com.guyuuan.mpv_kmp.IosRenderContextSupport
-import com.guyuuan.mpv_kmp.MpvPlayer
-import com.guyuuan.mpv_kmp.MpvPlayerCapability
-import com.guyuuan.mpv_kmp.MpvPlayerSnapshot
-import com.guyuuan.mpv_kmp.MpvPlayerState
-import com.guyuuan.mpv_kmp.data.MpvAudioTrack
-import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
-import com.guyuuan.mpv_kmp.data.MpvSubtitleTrack
 import com.guyuuan.mpv_kmp.service.IosNowPlayingMediaIntegration
 import com.guyuuan.mpv_kmp.service.IosPlaybackStateStore
 import com.guyuuan.mpv_kmp.service.MediaCommand
 import com.guyuuan.mpv_kmp.service.PlaybackCoordinator
-import com.guyuuan.mpv_kmp.service.PlaybackMediaType
-import com.guyuuan.mpv_kmp.service.PlaybackMetadata
 import com.guyuuan.mpv_kmp.service.PlaybackSnapshot
-import com.guyuuan.mpv_kmp.service.PlaybackStatus
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.readValue
@@ -33,13 +23,9 @@ import kotlinx.cinterop.useContents
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.launch
 import platform.AVFoundation.*
 import platform.AVKit.*
 import platform.CoreGraphics.CGRect
@@ -81,9 +67,11 @@ actual fun rememberPipMpvPlayer(): PipMpvPlayer {
         IosSampleBufferPictureInPictureOutput(coordinator)
     }
     val mediaPlayer = remember(coordinator, videoOutput) {
-        IosPlaybackCoordinatorMpvPlayer(
+        PlaybackCoordinatorMpvPlayer(
             coordinator = coordinator,
-            videoOutput = videoOutput
+            videoOutput = videoOutput,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
+            onSnapshot = videoOutput::updatePlaybackSnapshot
         )
     }
     val player = remember(mediaPlayer, videoOutput) {
@@ -110,83 +98,6 @@ private object IosPipPlaybackOwner {
             mediaIntegration = IosNowPlayingMediaIntegration(),
             stateStore = IosPlaybackStateStore()
         ).also(PlaybackCoordinator::start)
-    }
-}
-
-private class IosPlaybackCoordinatorMpvPlayer(
-    private val coordinator: PlaybackCoordinator,
-    override val videoOutput: IosSampleBufferPictureInPictureOutput
-) : MpvPlayer {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val mutableSnapshot = MutableStateFlow(coordinator.snapshot.value.toPlayerSnapshot())
-    override val snapshot: StateFlow<MpvPlayerSnapshot> = mutableSnapshot.asStateFlow()
-
-    override val capabilities: Set<MpvPlayerCapability> = setOf(
-        MpvPlayerCapability.TrackSelection,
-        MpvPlayerCapability.ExternalSubtitle
-    )
-    override val decoderInfoFlow: Flow<MpvDecoderInfo> = emptyFlow()
-    private var closed = false
-
-    init {
-        scope.launch {
-            coordinator.snapshot.collect { snapshot ->
-                mutableSnapshot.value = snapshot.toPlayerSnapshot()
-                videoOutput.updatePlaybackSnapshot(snapshot)
-            }
-        }
-    }
-
-    override fun load(uri: String): Int {
-        val title = uri.substringAfterLast('/').substringBefore('?').ifBlank { uri }
-        return coordinator.load(
-            PlaybackMetadata(
-                mediaId = uri,
-                uri = uri,
-                title = title,
-                mediaType = PlaybackMediaType.Video
-            )
-        )
-    }
-
-    override fun play(): Int = coordinator.execute(MediaCommand.Play)
-    override fun pause(): Int = coordinator.execute(MediaCommand.Pause)
-    override fun stop(): Int = coordinator.execute(MediaCommand.Stop)
-
-    override fun seek(positionSeconds: Double): Int = coordinator.execute(
-        MediaCommand.SeekTo(
-            (positionSeconds.coerceAtLeast(0.0) * MILLIS_PER_SECOND).toLong()
-        )
-    )
-
-    override fun setVolume(volume: Double): Int = coordinator.execute(
-        MediaCommand.SetVolume(volume.toFloat().coerceIn(0f, MAX_MPV_VOLUME))
-    )
-
-    override fun setSpeed(speed: Float): Int =
-        coordinator.execute(MediaCommand.SetSpeed(speed))
-
-    override fun getSubtitleList(): List<MpvSubtitleTrack> =
-        coordinator.player.getSubtitleList()
-
-    override fun setSubtitle(id: Int?): Int = coordinator.player.setSubtitle(id)
-
-    override fun getAudioTrackList(): List<MpvAudioTrack> =
-        coordinator.player.getAudioTrackList()
-
-    override fun setAudioTrack(id: Int?): Int = coordinator.player.setAudioTrack(id)
-
-    override fun addExternalSubtitle(uri: String): Int =
-        coordinator.player.addExternalSubtitle(uri)
-
-    override fun addExternalSubtitleFile(path: String): Int =
-        coordinator.player.addExternalSubtitleFile(path)
-
-    fun close() {
-        if (closed) return
-        closed = true
-        scope.cancel()
-        mutableSnapshot.value = mutableSnapshot.value.copy(state = MpvPlayerState.Disposed)
     }
 }
 
@@ -566,25 +477,7 @@ private class IosSampleBufferVideoView(
     }
 }
 
-private fun PlaybackSnapshot.toPlayerSnapshot(): MpvPlayerSnapshot = MpvPlayerSnapshot(
-    state = when (status) {
-        PlaybackStatus.Idle -> MpvPlayerState.Idle
-        PlaybackStatus.Loading -> MpvPlayerState.Loading
-        PlaybackStatus.Playing -> MpvPlayerState.Playing
-        PlaybackStatus.Paused -> MpvPlayerState.Paused
-        PlaybackStatus.Stopped -> MpvPlayerState.Stopped
-        PlaybackStatus.Ended -> MpvPlayerState.Ended
-        PlaybackStatus.Error -> MpvPlayerState.Error
-        PlaybackStatus.Disposed -> MpvPlayerState.Disposed
-    },
-    positionSeconds = positionMillis / MILLIS_PER_SECOND,
-    durationSeconds = durationMillis / MILLIS_PER_SECOND,
-    volume = volume,
-    speed = speed
-)
-
 private const val MILLIS_PER_SECOND = 1_000.0
-private const val MAX_MPV_VOLUME = 100f
 private const val PREFERRED_TIME_SCALE = 1_000
 private const val MAX_RENDER_EDGE = 1_280
 private const val RENDER_TICK_RATE = 30uL

@@ -3,8 +3,11 @@ package com.guyuuan.mpv_kmp.pip
 import com.guyuuan.mpv_kmp.MpvPlayer
 import com.guyuuan.mpv_kmp.MpvPlayerCapability
 import com.guyuuan.mpv_kmp.MpvPlayerSnapshot
+import com.guyuuan.mpv_kmp.MpvPlayerState
 import com.guyuuan.mpv_kmp.MpvVideoOutput
 import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
+import com.guyuuan.mpv_kmp.service.PlaybackSnapshot
+import com.guyuuan.mpv_kmp.service.PlaybackStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -65,6 +68,28 @@ class PipMpvPlayerTest {
         )
 
         assertSame(pipVideoOutput, player.videoOutput)
+    }
+
+    @Test
+    fun mapsCoordinatorSnapshotToSharedPlayerSnapshot() {
+        val snapshot = PlaybackSnapshot(
+            status = PlaybackStatus.Playing,
+            positionMillis = 12_500,
+            durationMillis = 90_000,
+            volume = 42f,
+            speed = 1.5f
+        )
+
+        assertEquals(
+            MpvPlayerSnapshot(
+                state = MpvPlayerState.Playing,
+                positionSeconds = 12.5,
+                durationSeconds = 90.0,
+                volume = 42f,
+                speed = 1.5f
+            ),
+            snapshot.toMpvPlayerSnapshot()
+        )
     }
 
     private object FakePlayer : MpvPlayer {

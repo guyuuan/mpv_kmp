@@ -25,9 +25,13 @@ MpvComposeView(player = player)
 `rememberMpvPlayer()`。两种入口都实现同一个 `MpvPlayer` 接口：
 
 - `LocalMpvPlayer` 在 Compose 生命周期内直接拥有唯一的 libmpv 实例；
-- Android `PipMpvPlayer` 通过 Media3 `MediaController` 连接
-  `MpvMediaSessionService`，由 Service 中的 `PlaybackCoordinator` 唯一拥有 libmpv；
-- iOS `PipMpvPlayer` 使用应用级 `PlaybackCoordinator` 唯一持有 libmpv，并组合
+- Android 和 iOS `PipMpvPlayer` 都通过公共 `PlaybackCoordinatorMpvPlayer` 直接连接
+  应用级 `PlaybackCoordinator`，Compose 页面销毁只释放 UI 观察和视频输出，不会销毁
+  播放器；
+- Android 的 `AndroidPlaybackCoordinatorOwner` 由 Compose 和
+  `MpvMediaSessionService` 共用，MediaController 只负责启动并维持系统 MediaSession，
+  播放命令和 `SurfaceView` 直接连接同一个 coordinator；
+- iOS 的应用级 owner 组合
   `IosNowPlayingMediaIntegration`、`AVSampleBufferDisplayLayer` 与
   `AVPictureInPictureController`。PiP 播放、暂停和跳转会回到同一个 coordinator，
   不会创建第二个播放器。
@@ -46,6 +50,25 @@ MpvComposeView(player = player)
 Activity 必须继承 `ComponentActivity`。模块使用 `androidx.core:core-pip` 的
 `VideoPlaybackPictureInPicture` 跟踪播放器 View，并在播放期间启用 Android 12+
 自动进入 PiP；`requestStart()` 可用于用户显式触发，Android 不提供直接退出 PiP 的 API。
+
+需要自定义状态存储、命令集合或封面加载器时，应在 `Application.onCreate` 中、首次调用
+`rememberPipMpvPlayer()` 之前配置进程级 owner：
+
+```kotlin
+import androidx.media3.common.util.UnstableApi
+
+@OptIn(UnstableApi::class)
+override fun onCreate() {
+    super.onCreate()
+    AndroidPlaybackCoordinatorOwner.configure { context, mediaIntegration ->
+        PlaybackCoordinator(
+            mediaIntegration = mediaIntegration,
+            stateStore = AndroidPlaybackStateStore(context),
+            artworkLoaderFactory = customArtworkLoaderFactory
+        )
+    }
+}
+```
 
 ## iOS 宿主配置
 
