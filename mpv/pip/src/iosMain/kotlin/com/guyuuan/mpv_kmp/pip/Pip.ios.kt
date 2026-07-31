@@ -16,6 +16,7 @@ import com.guyuuan.mpv_kmp.service.IosPlaybackStateStore
 import com.guyuuan.mpv_kmp.service.MediaCommand
 import com.guyuuan.mpv_kmp.service.PlaybackCoordinator
 import com.guyuuan.mpv_kmp.service.PlaybackSnapshot
+import com.guyuuan.mpv_kmp.util.PlatformLock
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.readValue
@@ -93,12 +94,40 @@ actual fun rememberPipMpvPlayer(): PipMpvPlayer {
 }
 
 private object IosPipPlaybackOwner {
-    val coordinator: PlaybackCoordinator by lazy {
-        PlaybackCoordinator(
-            mediaIntegration = IosNowPlayingMediaIntegration(),
-            stateStore = IosPlaybackStateStore()
-        ).also(PlaybackCoordinator::start)
+    private val lock = PlatformLock()
+    private var configuration: PipPlaybackConfiguration? = null
+    private var coordinatorInstance: PlaybackCoordinator? = null
+
+    val coordinator: PlaybackCoordinator
+        get() = lock.withLock {
+            coordinatorInstance ?: (configuration ?: PipPlaybackConfiguration.default())
+                .createCoordinator(
+                    mediaIntegration = IosNowPlayingMediaIntegration(),
+                    defaultStateStore = IosPlaybackStateStore()
+                )
+                .also { coordinator ->
+                    coordinator.start()
+                    coordinatorInstance = coordinator
+                }
+        }
+
+    fun configure(configuration: PipPlaybackConfiguration) {
+        lock.withLock {
+            check(coordinatorInstance == null) {
+                "iOS PiP playback is already initialized"
+            }
+            check(this.configuration == null) {
+                "iOS PiP playback is already configured"
+            }
+            this.configuration = configuration
+        }
     }
+}
+
+internal actual fun installPlatformPipPlaybackConfiguration(
+    configuration: PipPlaybackConfiguration
+) {
+    IosPipPlaybackOwner.configure(configuration)
 }
 
 private class IosSampleBufferPictureInPictureOutput(

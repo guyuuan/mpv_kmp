@@ -6,6 +6,9 @@ import com.guyuuan.mpv_kmp.MpvPlayerSnapshot
 import com.guyuuan.mpv_kmp.MpvPlayerState
 import com.guyuuan.mpv_kmp.MpvVideoOutput
 import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
+import com.guyuuan.mpv_kmp.service.PlaybackArtwork
+import com.guyuuan.mpv_kmp.service.PlaybackMediaType
+import com.guyuuan.mpv_kmp.service.PlaybackMetadata
 import com.guyuuan.mpv_kmp.service.PlaybackSnapshot
 import com.guyuuan.mpv_kmp.service.PlaybackStatus
 import kotlin.test.Test
@@ -88,6 +91,29 @@ class PipMpvPlayerTest {
     }
 
     @Test
+    fun forwardsRichMetadataToCoordinatorBackedDelegate() {
+        val controller = FakePictureInPictureController(
+            PictureInPictureAvailability.Available
+        )
+        val delegate = FakeMetadataPlayer()
+        val player = PipMpvPlayer(delegate, controller)
+        val metadata = PlaybackMetadata(
+            mediaId = "episode-1",
+            uri = "https://example.com/video.mp4",
+            title = "Episode 1",
+            artwork = PlaybackArtwork.Uri("https://example.com/artwork.jpg"),
+            mediaType = PlaybackMediaType.Video
+        )
+        val updated = metadata.copy(title = "Updated Episode 1")
+
+        assertEquals(RESULT_CODE, player.load(metadata))
+        assertSame(metadata, delegate.loadedMetadata)
+
+        player.updateMetadata(updated)
+        assertSame(updated, delegate.updatedMetadata)
+    }
+
+    @Test
     fun mapsCoordinatorSnapshotToSharedPlayerSnapshot() {
         val snapshot = PlaybackSnapshot(
             status = PlaybackStatus.Playing,
@@ -125,6 +151,24 @@ class PipMpvPlayerTest {
         override fun setSpeed(speed: Float): Int = 0
     }
 
+    private class FakeMetadataPlayer :
+        MpvPlayer by FakePlayer,
+        PlaybackMetadataController {
+        var loadedMetadata: PlaybackMetadata? = null
+            private set
+        var updatedMetadata: PlaybackMetadata? = null
+            private set
+
+        override fun load(metadata: PlaybackMetadata): Int {
+            loadedMetadata = metadata
+            return RESULT_CODE
+        }
+
+        override fun updateMetadata(metadata: PlaybackMetadata?) {
+            updatedMetadata = metadata
+        }
+    }
+
     private class FakePictureInPictureController(
         availability: PictureInPictureAvailability,
         private val requestStartResult: Boolean = false
@@ -144,5 +188,9 @@ class PipMpvPlayerTest {
         }
         override fun requestStop(): Boolean = false
         override fun close() = Unit
+    }
+
+    private companion object {
+        const val RESULT_CODE = 42
     }
 }

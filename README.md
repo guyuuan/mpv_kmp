@@ -6,6 +6,7 @@ The project follows the updated Kotlin Multiplatform structure with separate mod
 * [/mpv/core/androidNative](./mpv/core/androidNative/src) contains the Android-only CMake/JNI bridge consumed by `mpv/core`.
 * [/mpv/compose](./mpv/compose) contains the Compose player state and platform video rendering controls.
 * [/mpv/service](./mpv/service) adds application-level playback ownership, platform media sessions, interruption handling, and playback restoration.
+* [/mpv/service-coil](./mpv/service-coil) resolves playback artwork URIs with Coil on Android, iOS, and Desktop (JVM).
 * [/example/shared](./example/shared/src) contains shared Compose UI for the sample app and exports the iOS framework.
 * [/example/androidApp](./example/androidApp/src) contains the Android application entry point and Android app configuration.
 * [/example/desktopApp](./example/desktopApp/src) contains the Desktop (JVM) application entry point and desktop packaging configuration.

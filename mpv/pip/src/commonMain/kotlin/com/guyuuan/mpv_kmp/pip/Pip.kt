@@ -78,11 +78,31 @@ class PipMpvPlayer internal constructor(
     fun enterPictureInPicture(): Boolean =
         if (closed) false else pictureInPicture.requestStart()
 
+    /**
+     * Loads a media item together with metadata published to platform media controls.
+     *
+     * A URI [PlaybackMetadata.artwork] is resolved by the application-level artwork loader
+     * configured through [configurePipPlayback].
+     */
+    fun load(metadata: PlaybackMetadata): Int =
+        (delegate as? PlaybackMetadataController)?.load(metadata)
+            ?: delegate.load(metadata.uri)
+
+    /** Replaces metadata for the currently playing item without reloading its media URI. */
+    fun updateMetadata(metadata: PlaybackMetadata?) {
+        (delegate as? PlaybackMetadataController)?.updateMetadata(metadata)
+    }
+
     fun close() {
         if (closed) return
         closed = true
         release()
     }
+}
+
+internal interface PlaybackMetadataController {
+    fun load(metadata: PlaybackMetadata): Int
+    fun updateMetadata(metadata: PlaybackMetadata?)
 }
 
 /**
@@ -96,7 +116,7 @@ internal class PlaybackCoordinatorMpvPlayer(
     override val videoOutput: MpvVideoOutput,
     private val scope: CoroutineScope,
     private val onSnapshot: (PlaybackSnapshot) -> Unit = {}
-) : MpvPlayer {
+) : MpvPlayer, PlaybackMetadataController {
     private val mutableSnapshot = MutableStateFlow(
         coordinator.snapshot.value.toMpvPlayerSnapshot()
     )
@@ -120,7 +140,7 @@ internal class PlaybackCoordinatorMpvPlayer(
 
     override fun load(uri: String): Int {
         val title = uri.substringAfterLast('/').substringBefore('?').ifBlank { uri }
-        return coordinator.load(
+        return load(
             PlaybackMetadata(
                 mediaId = uri,
                 uri = uri,
@@ -128,6 +148,12 @@ internal class PlaybackCoordinatorMpvPlayer(
                 mediaType = PlaybackMediaType.Video
             )
         )
+    }
+
+    override fun load(metadata: PlaybackMetadata): Int = coordinator.load(metadata)
+
+    override fun updateMetadata(metadata: PlaybackMetadata?) {
+        coordinator.updateMetadata(metadata)
     }
 
     override fun play(): Int = coordinator.execute(MediaCommand.Play)

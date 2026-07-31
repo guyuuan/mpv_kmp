@@ -51,6 +51,10 @@ coordinator.setQueue(
 也可以在 `androidMain`、`iosMain` 或 `jvmMain` 中处理鉴权和私有 URI。返回 `null`、空数组
 或抛出普通加载异常时继续使用原始 URI。
 
+需要直接使用 Coil 加载网络封面时，可额外依赖 `mpv/service-coil`。该模块提供
+`CoilPlaybackArtworkLoader` 及对应 Factory，并内置 Android、Darwin 和 JVM 的 Ktor3
+网络引擎；具体创建方式见 [`mpv/service-coil/README.md`](../service-coil/README.md)。
+
 `DesktopPlaybackStateStore` 使用对应系统的用户数据目录和原子文件替换，不受 Java Preferences 单值大小限制。
 
 在真正退出平台级所有者时调用 `coordinator.close()`。队列、索引、位置、速度、循环、随机和暂停状态会先写入配置的 `PlaybackStateStore`；定期状态变化也会以 1 秒防抖保存。默认恢复不会自动播放，只有用户明确允许时才调用 `restoreSavedPlayback(resumePlayback = true)`。
@@ -59,7 +63,7 @@ coordinator.setQueue(
 
 模块清单已声明前台媒体播放权限和 `MpvMediaSessionService`。`AndroidMediaSessionIntegration` 实现公共层的 `PlatformMediaIntegration`，负责将 coordinator 状态发布给 Media3，并把系统命令路由回 coordinator。`AndroidPlaybackCoordinatorOwner` 在进程级唯一持有 libmpv、音频焦点和耳机断开监听；Compose PiP 播放器与 Service 共用该 owner。Service 只负责托管 `MediaSession` 和 `SimpleBasePlayer` 适配器，销毁 Service 会立即保存播放状态，但不会终止仍由应用级 owner 持有的播放。
 
-应用可直接通过 `SessionToken`/`MediaController` 连接该 Service，也可继承它并覆盖 `createPlaybackCoordinator(mediaIntegration)` 注入自己的配置；只有首次创建进程级 owner 的入口会执行该工厂。使用 `mpv/pip` 且需要自定义配置时，应在 `Application.onCreate` 中优先调用 `AndroidPlaybackCoordinatorOwner.configure`。传入的 `mediaIntegration` 必须继续交给新 coordinator。系统或控制器提供队列时，`MpvMedia3Player` 会将所有 `MediaItem` 转成 `PlaybackMetadata`，再统一交给 coordinator。
+应用可直接通过 `SessionToken`/`MediaController` 连接该 Service，也可继承它并覆盖 `createPlaybackCoordinator(mediaIntegration)` 注入自己的配置；只有首次创建进程级 owner 的入口会执行该工厂。使用 `mpv/pip` 时，优先在 `Application.onCreate` 中调用跨平台的 `configurePipPlayback`；仅依赖 `mpv/service` 的 Android 应用仍可直接调用 `AndroidPlaybackCoordinatorOwner.configure`。两种配置方式都必须早于 owner 初始化且不能同时使用，传入的 `mediaIntegration` 必须继续交给新 coordinator。系统或控制器提供队列时，`MpvMedia3Player` 会将所有 `MediaItem` 转成 `PlaybackMetadata`，再统一交给 coordinator。
 
 Compose 应用可直接依赖 `mpv/pip` 并使用 `rememberPipMpvPlayer()`。返回的
 `PipMpvPlayer` 与 iOS 共用 `PlaybackCoordinatorMpvPlayer` 适配逻辑；视频
