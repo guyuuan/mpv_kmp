@@ -454,7 +454,7 @@ should_copy_resource_lib () {
         macos:*.[0-9]*.dylib|ios:*.[0-9]*.dylib)
             return 1
         ;;
-        macos:*.dylib|ios:*.dylib|linux:*.so|linux:*.so.*|windows:*.dll)
+        android:*.so|macos:*.dylib|ios:*.dylib|linux:*.so|linux:*.so.*|windows:*.dll)
             return 0
         ;;
         *)
@@ -559,6 +559,22 @@ finalize_desktop_resource_dir () {
 
 copy_to_resources () {
     case "$platform" in
+        android)
+            local android_abi
+            case "$arch" in
+                armv7l) android_abi=armeabi-v7a ;;
+                arm64) android_abi=arm64-v8a ;;
+                x86) android_abi=x86 ;;
+                x86_64) android_abi=x86_64 ;;
+                *) return 0 ;;
+            esac
+            local src="$prefix_dir/lib"
+            [ -d "$src" ] || return 0
+            local dst="$PWD/../mpv/core/androidNative/libs/$android_abi"
+            mkdir -p "$dst"
+            rm -f "$dst"/*.so
+            copy_resource_libs_from_dir "$src" "$dst"
+        ;;
         ios)
             local src="$prefix_dir/lib"
             [ -d "$src" ] || return 0
