@@ -111,3 +111,7 @@ bundle with:
 ---
 
 Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
+
+## License
+
+This project is licensed under the [Apache License 2.0](./LICENSE).

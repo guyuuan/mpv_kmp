@@ -70,7 +70,7 @@ case "$platform" in
             --arch=${arch_family} --cpu=$cpu
             --extra-cflags="-I$prefix_dir/include $cpuflags $target_flags" --extra-ldflags="-L$prefix_dir/lib $target_flags"
             --enable-jni --enable-mediacodec --enable-mbedtls $dav1d_flag --disable-vulkan
-            --disable-static --enable-shared --enable-{gpl,version3}
+            --disable-static --enable-shared --disable-gpl --enable-version3
             --disable-{stripping,doc,programs}
             --disable-{muxers,encoders,devices}
             --enable-encoder=mjpeg,png
@@ -92,7 +92,7 @@ case "$platform" in
             --arch=${arch_family}
             --extra-cflags="-I$prefix_dir/include $cpuflags $target_flags $darwin_target_flags -DHAVE_SYSCTL_H=0 -DHAVE_SYSCTL=0" --extra-ldflags="-L$prefix_dir/lib $target_flags $darwin_target_flags" --extra-libs="$addlibs"
             --enable-mbedtls $dav1d_flag --disable-vulkan
-            --disable-static --enable-shared --enable-{gpl,version3}
+            --disable-static --enable-shared --disable-gpl --enable-version3
             --disable-{stripping,doc}
             --disable-filter=gfxcapture
         )
