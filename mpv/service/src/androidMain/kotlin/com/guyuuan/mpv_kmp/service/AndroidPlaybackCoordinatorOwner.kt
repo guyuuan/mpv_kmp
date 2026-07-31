@@ -46,6 +46,9 @@ object AndroidPlaybackCoordinatorOwner {
             check(playback == null) {
                 "AndroidPlaybackCoordinatorOwner is already initialized"
             }
+            check(configuredFactory == null) {
+                "AndroidPlaybackCoordinatorOwner is already configured"
+            }
             configuredFactory = factory
         }
     }

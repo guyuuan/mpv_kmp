@@ -20,6 +20,9 @@ import androidx.compose.ui.unit.dp
 import com.guyuuan.mpv_kmp.MpvComposeView
 import com.guyuuan.mpv_kmp.pip.PictureInPictureState
 import com.guyuuan.mpv_kmp.pip.rememberPipMpvPlayer
+import com.guyuuan.mpv_kmp.service.PlaybackArtwork
+import com.guyuuan.mpv_kmp.service.PlaybackMediaType
+import com.guyuuan.mpv_kmp.service.PlaybackMetadata
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -37,10 +40,15 @@ fun App(overlay: @Composable BoxScope.() -> Unit = {}) {
 
         fun playVideo() {
             println("start load video: $videoUrl")
-            val load = player.load(videoUrl)
-            println("load result: $load")
-            val play = player.play()
-            println("play result: $play")
+            player.load(PlaybackMetadata(
+                mediaId = videoUrl,
+                uri = videoUrl,
+                title = "我的阿勒泰",
+                artist = "artist",
+                albumTitle = "album",
+                artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
+                mediaType = PlaybackMediaType.Video
+            ))
         }
 
         MpvComposeView(

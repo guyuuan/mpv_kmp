@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.util.UnstableApi
 import com.guyuuan.mpv_kmp.service.AndroidPlaybackCoordinatorOwner
+import com.guyuuan.mpv_kmp.service.AndroidPlaybackStateStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -60,6 +61,18 @@ actual fun rememberPipMpvPlayer(): PipMpvPlayer {
         onDispose(player::close)
     }
     return player
+}
+
+@OptIn(UnstableApi::class)
+internal actual fun installPlatformPipPlaybackConfiguration(
+    configuration: PipPlaybackConfiguration
+) {
+    AndroidPlaybackCoordinatorOwner.configure { context, mediaIntegration ->
+        configuration.createCoordinator(
+            mediaIntegration = mediaIntegration,
+            defaultStateStore = AndroidPlaybackStateStore(context)
+        )
+    }
 }
 
 private tailrec fun Context.findComponentActivity(): ComponentActivity? = when (this) {

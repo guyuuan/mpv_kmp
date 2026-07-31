@@ -11,6 +11,7 @@ androidx-espresso = "3.7.0"
 androidx-lifecycle = "2.10.0"
 androidx-media3 = "1.10.1"
 androidx-testExt = "1.3.0"
+coil = "3.5.0"
 composeHotReload = "1.1.1"
 dbus-java = "5.2.0"
 composeMultiplatform = "1.12.0-beta01"
@@ -21,6 +22,7 @@ material3 = "1.10.0-alpha05"
 jna = "5.19.1"
 jogl = "2.6.0"
 kotlinStdlib = "2.4.0"
+ktor = "3.5.1"
 runner = "1.5.2"
 core = "1.5.0"
 
@@ -46,12 +48,18 @@ compose-material-iconsExtended = { group = "org.jetbrains.compose.material", nam
 compose-material = { group = "org.jetbrains.compose.material", name = "material", version.ref = "composeMultiplatform" }
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
 compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "composeMultiplatform" }
+coil = { module = "io.coil-kt.coil3:coil", version.ref = "coil" }
+coil-core = { module = "io.coil-kt.coil3:coil-core", version.ref = "coil" }
+coil-network-ktor3 = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil" }
 jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 jogl-all-main = { module = "org.jogamp.jogl:jogl-all-main", version.ref = "jogl" }
 gluegen-rt-main = { module = "org.jogamp.gluegen:gluegen-rt-main", version.ref = "jogl" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
+ktor-client-android = { module = "io.ktor:ktor-client-android", version.ref = "ktor" }
+ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
+ktor-client-java = { module = "io.ktor:ktor-client-java", version.ref = "ktor" }
 androidx-media3-common = { module = "androidx.media3:media3-common", version.ref = "androidx-media3" }
 androidx-media3-session = { module = "androidx.media3:media3-session", version.ref = "androidx-media3" }
 dbus-java-core = { module = "com.github.hypfvieh:dbus-java-core", version.ref = "dbus-java" }

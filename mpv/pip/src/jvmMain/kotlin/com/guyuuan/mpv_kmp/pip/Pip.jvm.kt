@@ -3,6 +3,7 @@ package com.guyuuan.mpv_kmp.pip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import com.guyuuan.mpv_kmp.rememberMpvPlayer
+import com.guyuuan.mpv_kmp.util.PlatformLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +18,26 @@ actual fun rememberPipMpvPlayer(): PipMpvPlayer {
             pictureInPicture = pipController
         )
     }
+}
+
+private object JvmPipPlaybackConfigurationOwner {
+    private val lock = PlatformLock()
+    private var configuration: PipPlaybackConfiguration? = null
+
+    fun configure(configuration: PipPlaybackConfiguration) {
+        lock.withLock {
+            check(this.configuration == null) {
+                "Desktop PiP playback is already configured"
+            }
+            this.configuration = configuration
+        }
+    }
+}
+
+internal actual fun installPlatformPipPlaybackConfiguration(
+    configuration: PipPlaybackConfiguration
+) {
+    JvmPipPlaybackConfigurationOwner.configure(configuration)
 }
 
 private class UnsupportedDesktopPictureInPictureController : PictureInPictureController {
