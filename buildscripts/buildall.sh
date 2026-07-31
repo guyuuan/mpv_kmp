@@ -421,7 +421,7 @@ compile_macos_jvm_shim () {
 
     local arch_id="$1"
     local dst_dir="$2"
-    local shim_src="$PWD/../mpv/src/jvmMain/native/macos_shim.c"
+    local shim_src="$PWD/../mpv/core/src/jvmMain/native/macos_shim.c"
     local shim_out="$dst_dir/libmpv_kmp_macos_shim.dylib"
 
     [ -f "$shim_src" ] || {
