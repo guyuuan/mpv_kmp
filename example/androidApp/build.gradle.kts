@@ -30,6 +30,23 @@ android {
         }
     }
 
+    // Keep each APK architecture-specific. Android App Bundles also keep ABI
+    // splitting enabled so Play delivers only the device's native libraries.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
+    bundle {
+        abi {
+            enableSplit = true
+        }
+    }
+
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false

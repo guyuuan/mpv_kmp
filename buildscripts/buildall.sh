@@ -203,6 +203,9 @@ load_target () {
                 export CFLAGS="${CFLAGS:+$CFLAGS }-target $target_triple"
                 export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-target $target_triple"
             fi
+            local llvm_strip
+            llvm_strip="$(find_llvm_strip 2>/dev/null || true)"
+            [ -n "$llvm_strip" ] && export STRIP="$llvm_strip"
             if [ -n "$SYSROOT" ]; then
                 export CFLAGS="${CFLAGS:+$CFLAGS }--sysroot $SYSROOT"
                 export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }--sysroot $SYSROOT"
@@ -380,7 +383,11 @@ NATIVEFILE
 	# also define: release build, static libs and no source downloads at runtime(!!!)
     cat >"$prefix_dir/crossfile.tmp" <<CROSSFILE
 [built-in options]
-buildtype = 'release'
+debug = false
+optimization = 's'
+strip = true
+b_lto = true
+b_ndebug = 'true'
 default_library = 'static'
 wrap_mode = 'nodownload'
 prefix = '/usr/local'
@@ -451,6 +458,9 @@ should_copy_resource_lib () {
     local lib_name="$(basename "$1")"
 
     case "$platform:$lib_name" in
+        *:libavdevice.so|*:libavdevice.dylib|windows:avdevice-*.dll)
+            return 1
+        ;;
         macos:*.[0-9]*.dylib|ios:*.[0-9]*.dylib)
             return 1
         ;;
@@ -548,11 +558,170 @@ ensure_windows_main_dll () {
 
     local dst_dir="$1"
     local candidate
-    [ -f "$dst_dir/mpv.dll" ] && return 0
-    for candidate in "$dst_dir"/mpv*.dll "$dst_dir"/libmpv*.dll; do
+    if [ ! -f "$dst_dir/mpv.dll" ]; then
+        for candidate in "$dst_dir"/mpv*.dll "$dst_dir"/libmpv*.dll; do
+            [ -e "$candidate" ] || continue
+            cp -fL "$candidate" "$dst_dir/mpv.dll"
+            break
+        done
+    fi
+
+    [ -f "$dst_dir/mpv.dll" ] || {
+        echo "Missing Windows mpv DLL in $dst_dir" >&2
+        return 1
+    }
+
+    for candidate in "$dst_dir"/libmpv*.dll; do
         [ -e "$candidate" ] || continue
-        cp -fL "$candidate" "$dst_dir/mpv.dll"
+        rm -f "$candidate"
+    done
+}
+
+find_windows_toolchain_dll () {
+    local dll_name="$1"
+    local compiler candidate sysroot
+
+    for compiler in "${target_triple}-gcc" "${target_triple}-g++"; do
+        command -v "$compiler" >/dev/null 2>&1 || continue
+
+        candidate="$("$compiler" -print-file-name="$dll_name" 2>/dev/null || true)"
+        if [ -n "$candidate" ] && [ "$candidate" != "$dll_name" ] && [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+
+        sysroot="$("$compiler" -print-sysroot 2>/dev/null || true)"
+        for candidate in \
+            "$sysroot/$target_triple/bin/$dll_name" \
+            "$sysroot/$target_triple/lib/$dll_name" \
+            "$sysroot/bin/$dll_name" \
+            "$sysroot/lib/$dll_name"; do
+            [ -n "$sysroot" ] && [ -f "$candidate" ] || continue
+            printf '%s\n' "$candidate"
+            return 0
+        done
+    done
+
+    return 1
+}
+
+bundle_windows_runtime_dlls () {
+    [ "$platform" = "windows" ] || return 0
+
+    local dst_dir="$1"
+    local objdump_tool="${target_triple}-objdump"
+    local lib dependency source added
+
+    command -v "$objdump_tool" >/dev/null 2>&1 || {
+        echo "$objdump_tool is required to validate Windows DLL dependencies" >&2
+        return 1
+    }
+
+    # Follow the MinGW runtime dependency closure. These DLLs live in the
+    # compiler toolchain rather than the install prefix, so the normal resource
+    # copy cannot discover them.
+    added=1
+    while [ "$added" -eq 1 ]; do
+        added=0
+        for lib in "$dst_dir"/*.dll; do
+            [ -e "$lib" ] || continue
+            while read -r dependency; do
+                case "$dependency" in
+                    libgcc_s_*.dll|libstdc++-6.dll|libwinpthread-1.dll)
+                        [ -f "$dst_dir/$dependency" ] && continue
+                        source="$(find_windows_toolchain_dll "$dependency")" || {
+                            echo "Missing Windows runtime dependency $dependency required by $(basename "$lib")" >&2
+                            return 1
+                        }
+                        cp -fL "$source" "$dst_dir/$dependency"
+                        added=1
+                    ;;
+                esac
+            done < <("$objdump_tool" -p "$lib" | awk '/DLL Name:/ { print $3 }')
+        done
+    done
+
+    # Keep a separate validation pass so a future toolchain dependency change
+    # cannot silently produce an unloadable Windows archive.
+    for lib in "$dst_dir"/*.dll; do
+        [ -e "$lib" ] || continue
+        while read -r dependency; do
+            case "$dependency" in
+                libgcc_s_*.dll|libstdc++-6.dll|libwinpthread-1.dll)
+                    [ -f "$dst_dir/$dependency" ] || {
+                        echo "Unbundled Windows runtime dependency $dependency required by $(basename "$lib")" >&2
+                        return 1
+                    }
+                ;;
+            esac
+        done < <("$objdump_tool" -p "$lib" | awk '/DLL Name:/ { print $3 }')
+    done
+}
+
+find_llvm_strip () {
+    local strip_tool llvm_prefix candidate
+
+    strip_tool="$(command -v llvm-strip 2>/dev/null || true)"
+    if [ -n "$strip_tool" ]; then
+        printf '%s\n' "$strip_tool"
         return 0
+    fi
+
+    if command -v brew >/dev/null 2>&1; then
+        llvm_prefix="$(brew --prefix llvm 2>/dev/null || true)"
+        if [ -x "$llvm_prefix/bin/llvm-strip" ]; then
+            printf '%s\n' "$llvm_prefix/bin/llvm-strip"
+            return 0
+        fi
+    fi
+
+    for candidate in "$PWD"/sdk/android-ndk-*/toolchains/llvm/prebuilt/*/bin/llvm-strip; do
+        [ -x "$candidate" ] || continue
+        printf '%s\n' "$candidate"
+        return 0
+    done
+
+    return 1
+}
+
+strip_resource_libs () {
+    local dst_dir="$1"
+    local strip_tool lib
+    local strip_args=()
+
+    case "$platform" in
+        android|linux)
+            strip_tool="$(find_llvm_strip)" || {
+                echo "llvm-strip is required to package $platform native libraries" >&2
+                return 1
+            }
+            strip_args=(--strip-unneeded)
+        ;;
+        windows)
+            strip_tool="$(command -v "$STRIP" 2>/dev/null || true)"
+            [ -n "$strip_tool" ] || {
+                echo "$STRIP is required to package Windows native libraries" >&2
+                return 1
+            }
+            strip_args=(--strip-unneeded)
+        ;;
+        macos|ios)
+            strip_tool="$(xcrun --find strip 2>/dev/null || true)"
+            [ -n "$strip_tool" ] || {
+                echo "Xcode strip is required to package $platform native libraries" >&2
+                return 1
+            }
+            strip_args=(-S -x)
+        ;;
+        *)
+            return 0
+        ;;
+    esac
+
+    for lib in "$dst_dir"/*.so "$dst_dir"/*.dylib "$dst_dir"/*.dll; do
+        [ -e "$lib" ] || continue
+        chmod u+w "$lib"
+        "$strip_tool" "${strip_args[@]}" "$lib"
     done
 }
 
@@ -575,6 +744,8 @@ finalize_desktop_resource_dir () {
     rewrite_macos_resource_dylibs "$dst_dir"
     rewrite_linux_resource_sonames "$dst_dir"
     ensure_windows_main_dll "$dst_dir"
+    bundle_windows_runtime_dlls "$dst_dir"
+    strip_resource_libs "$dst_dir"
 }
 
 copy_to_resources () {
@@ -594,6 +765,7 @@ copy_to_resources () {
             mkdir -p "$dst"
             rm -f "$dst"/*.so
             copy_resource_libs_from_dir "$src" "$dst"
+            strip_resource_libs "$dst"
         ;;
         ios)
             local src="$prefix_dir/lib"
@@ -612,6 +784,7 @@ copy_to_resources () {
                 should_copy_resource_lib "$lib" || continue
                 cp -fL "$lib" "$dst/$(basename "$lib")"
             done
+            strip_resource_libs "$dst"
         ;;
         macos|linux|windows)
             local os_id
@@ -776,7 +949,19 @@ done
 
 load_target "$arch"
 setup_prefix
+if [ "$platform" = "linux" ] && [ -n "${ZIG:-}" ]; then
+    export ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-$prefix_dir/.cache/zig}"
+    mkdir -p "$ZIG_GLOBAL_CACHE_DIR"
+fi
+if [ "$platform" = "macos" ] || [ "$platform" = "ios" ]; then
+    export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-$prefix_dir/.cache/clang-module-cache}"
+    mkdir -p "$CLANG_MODULE_CACHE_PATH"
+fi
 build $target
-copy_to_resources
+case "$target" in
+    mpv|mpv-android)
+        copy_to_resources
+    ;;
+esac
 
 exit 0

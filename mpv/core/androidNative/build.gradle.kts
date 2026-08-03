@@ -1,26 +1,9 @@
-import org.gradle.api.tasks.Sync
-
 plugins {
     alias(libs.plugins.androidLibrary)
 }
 
-val androidMpvLibs = listOf(
-    "arm64-v8a" to "android-arm64",
-    "x86_64" to "android-x86_64",
-)
+val androidMpvAbis = listOf("arm64-v8a", "x86_64")
 val androidNdkVersion = "29.0.14206865"
-val generatedAndroidMpvJniLibsDir = layout.projectDirectory.dir("libs").asFile
-
-val copyAndroidMpvJniLibs by tasks.registering(Sync::class) {
-    description = "copy so to libs"
-    androidMpvLibs.forEach { (abi, prefix) ->
-        from(rootProject.file("buildscripts/prefix/$prefix/lib")) {
-            include("*.so")
-            into(abi)
-        }
-    }
-    into(generatedAndroidMpvJniLibsDir)
-}
 
 android {
     namespace = "com.guyuuan.mpv_kmp.android.nativebridge"
@@ -30,7 +13,7 @@ android {
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
         ndk {
-            abiFilters += androidMpvLibs.map { it.first }
+            abiFilters += androidMpvAbis
         }
         externalNativeBuild {
             cmake {
@@ -47,11 +30,10 @@ android {
 
     sourceSets {
         getByName("main") {
-            jniLibs.directories.add(generatedAndroidMpvJniLibsDir.path)
+            // buildall.sh already copies and strips the final libraries here.
+            // Referencing them directly prevents Gradle from overwriting the
+            // packaged files with unstripped copies from buildscripts/prefix.
+            jniLibs.directories.add(file("libs").path)
         }
     }
-}
-
-tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach {
-    dependsOn(copyAndroidMpvJniLibs)
 }

@@ -61,17 +61,22 @@ patch_ios_dylib_install_names() {
 }
 
 args=()
+size_args=(
+    --enable-small --enable-lto
+    --disable-debug --enable-stripping
+    --disable-doc --disable-programs --disable-avdevice
+)
 case "$platform" in
     android)
         args=(
             --target-os=android --enable-cross-compile
             --cross-prefix=${target_triple}-
-            --cc="$cc_bin" --pkg-config=pkg-config --nm=$NM
+            --cc="$cc_bin" --pkg-config=pkg-config --nm=$NM --strip="$STRIP"
             --arch=${arch_family} --cpu=$cpu
             --extra-cflags="-I$prefix_dir/include $cpuflags $target_flags" --extra-ldflags="-L$prefix_dir/lib $target_flags"
             --enable-jni --enable-mediacodec --enable-mbedtls $dav1d_flag --disable-vulkan
             --disable-static --enable-shared --disable-gpl --enable-version3
-            --disable-{stripping,doc,programs}
+            "${size_args[@]}"
             --disable-{muxers,encoders,devices}
             --enable-encoder=mjpeg,png
             --enable-muxer=mov,matroska,mpegts
@@ -88,12 +93,12 @@ case "$platform" in
         fi
         args=(
             --target-os=$target_os --enable-cross-compile
-            --cc="$cc_bin" --pkg-config=pkg-config --nm=$NM
+            --cc="$cc_bin" --pkg-config=pkg-config --nm=$NM --strip="$STRIP"
             --arch=${arch_family}
             --extra-cflags="-I$prefix_dir/include $cpuflags $target_flags $darwin_target_flags -DHAVE_SYSCTL_H=0 -DHAVE_SYSCTL=0" --extra-ldflags="-L$prefix_dir/lib $target_flags $darwin_target_flags" --extra-libs="$addlibs"
             --enable-mbedtls $dav1d_flag --disable-vulkan
             --disable-static --enable-shared --disable-gpl --enable-version3
-            --disable-{stripping,doc}
+            "${size_args[@]}"
             --disable-filter=gfxcapture
         )
         [ "$platform" = "macos" ] && args+=(--enable-videotoolbox)
