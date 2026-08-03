@@ -54,11 +54,16 @@ dependencies {
 }
 ```
 
+The Gradle plugin JAR and the regular JVM library JAR are code-only. Native libraries are published separately as
+`jvm-<os>-<arch>-native-libs` ZIP classifiers; the plugin resolves only the current build host's classifier from the
+same dependency repositories used by the application. This avoids downloading every desktop platform for each
+consumer.
+
 The JVM runtime loads native libraries in this order:
 
 1. `-Dmpv.kmp.native.dir=<dir>` provided by the plugin or by the application.
 2. Compose Desktop app resources under `mpv-kmp/<platform>`.
-3. The `mpv` JAR resources as a fallback.
+3. Resources from legacy `mpv` JARs as a compatibility fallback.
 4. The system `mpv` library as a final fallback.
 
 Set `mpvKmp.desktopNativeDirectoryOverride` when an app wants to use externally built native libraries instead
@@ -71,9 +76,10 @@ in your IDE’s toolbar or open the [/iosApp](./iosApp) directory in Xcode and r
 
 ### iOS dylib integration for KMP consumers
 
-KMP consumers should use the Gradle plugin together with the `mpv` dependency. The plugin links the final
-iOS framework against `libmpv.dylib` and embeds/signs the bundled mpv and FFmpeg dylibs during the Xcode
-framework build phase.
+KMP consumers should use the Gradle plugin together with the `mpv` dependency. The plugin resolves the separate
+`ios-native-libs` ZIP, links the final iOS framework against `libmpv.dylib`, and embeds/signs the mpv and FFmpeg
+dylibs during the Xcode framework build phase. The plugin's main JAR therefore does not make Android- or
+desktop-only consumers download iOS binaries.
 
 ```kotlin
 plugins {
@@ -101,12 +107,24 @@ The task expects the usual Xcode build environment variables such as `PLATFORM_N
 the Kotlin framework and the required `lib*.dylib` files into `App.app/Frameworks` and signs them when
 code signing is enabled.
 
-The bundled iOS native libraries include `iphoneos/arm64` and `iphonesimulator/arm64`. Rebuild the simulator
+The published iOS native libraries include `iphoneos/arm64` and `iphonesimulator/arm64`. Rebuild the simulator
 bundle with:
 
 ```sh
 ./buildscripts/buildall.sh --platform ios --arch arm64-simulator mpv
 ```
+
+### Native library size and Android ABI packaging
+
+Release native builds use size optimization, link-time optimization, and symbol stripping. FFmpeg is built without
+debug data, command-line programs, documentation, `libavdevice`, or device I/O support; playback formats, network
+protocols, decoders, and filters otherwise remain available. The final resource-copy step strips each shared library
+again and removes duplicate Windows mpv DLL names.
+
+The Android library AAR still exposes both supported ABIs (`arm64-v8a` and `x86_64`). The example application
+produces one APK per ABI and keeps ABI splitting enabled for Android App Bundles, so an installed APK does not carry
+both native-library sets. Applications consuming the library should use the same `splits.abi` configuration when
+publishing standalone APKs; Play-generated APKs from an AAB are ABI-specific.
 
 ---
 

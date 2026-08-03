@@ -79,10 +79,18 @@ kotlin {
         androidMain.dependencies {
             implementation(projects.mpv.core.androidNative)
         }
-        jvmMain.dependencies {
-            implementation(libs.jna)
-            implementation(libs.jogl.all.main)
-            implementation(libs.gluegen.rt.main)
+        jvmMain {
+            // Native libraries are published as per-platform archives below. Keeping
+            // them out of JVM resources avoids processing every OS/CPU build locally
+            // and prevents the main artifact from carrying all platforms.
+            desktopNativePlatforms.forEach { platform ->
+                resources.exclude("$platform/**")
+            }
+            dependencies {
+                implementation(libs.jna)
+                implementation(libs.jogl.all.main)
+                implementation(libs.gluegen.rt.main)
+            }
         }
     }
 }

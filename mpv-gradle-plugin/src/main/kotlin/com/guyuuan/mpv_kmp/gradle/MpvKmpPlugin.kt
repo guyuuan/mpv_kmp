@@ -3,12 +3,14 @@ package com.guyuuan.mpv_kmp.gradle
 import org.gradle.api.DefaultTask
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
@@ -26,6 +28,7 @@ import java.net.JarURLConnection
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.jar.JarFile
+import java.util.zip.ZipFile
 import javax.inject.Inject
 
 open class MpvKmpExtension @Inject constructor(objects: ObjectFactory) {
@@ -34,12 +37,23 @@ open class MpvKmpExtension @Inject constructor(objects: ObjectFactory) {
     val validateDylibs: Property<Boolean> = objects.property(Boolean::class.java).convention(true)
     val desktopNativeIntegration: Property<Boolean> = objects.property(Boolean::class.java).convention(true)
     val desktopNativeDirectoryOverride: DirectoryProperty = objects.directoryProperty()
+    val iosNativeDirectoryOverride: DirectoryProperty = objects.directoryProperty()
 }
 
 class MpvKmpPlugin : Plugin<Project> {
     override fun apply(project: Project) {
         val extension = project.extensions.create("mpvKmp", MpvKmpExtension::class.java)
         val desktopPlatform = DesktopNativeLibraries.currentPlatform()
+        val localDesktopNativeRoot = project.findLocalNativeDirectory("src/jvmMain/resources")
+            ?.takeIf { root -> root.resolve(desktopPlatform).isDirectory }
+        val desktopNativeArchive = project.nativeArchiveFiles(
+            classifier = "jvm-$desktopPlatform-native-libs",
+            skipResolution = {
+                !extension.desktopNativeIntegration.get() ||
+                    extension.desktopNativeDirectoryOverride.isPresent ||
+                    localDesktopNativeRoot != null
+            }
+        )
         val extractDesktopNativeLibs = project.tasks.register(
             "extractMpvKmpDesktopNativeLibs",
             ExtractMpvKmpDesktopNativeLibsTask::class.java
@@ -48,12 +62,23 @@ class MpvKmpPlugin : Plugin<Project> {
             task.enabledIntegration.set(extension.desktopNativeIntegration)
             task.outputDirectory.set(project.layout.buildDirectory.dir("mpvKmp/desktopNativeLibs/$desktopPlatform"))
             task.nativeLibrariesOverride.set(extension.desktopNativeDirectoryOverride)
+            localDesktopNativeRoot?.let { task.localNativeLibrariesDirectory.set(it) }
+            task.nativeLibraryArchives.from(desktopNativeArchive)
         }
+        val localIosNativeRoot = project.findLocalNativeDirectory("src/iosMain/nativeLibs")
+            ?.takeIf { root -> root.resolve("iphoneos/libmpv.dylib").isFile }
+        val iosNativeArchive = project.nativeArchiveFiles(
+            classifier = "ios-native-libs",
+            skipResolution = { extension.iosNativeDirectoryOverride.isPresent || localIosNativeRoot != null }
+        )
         val extractIosDylibs = project.tasks.register(
             "extractMpvKmpIosDylibs",
             ExtractMpvKmpIosDylibsTask::class.java
         ) { task ->
             task.outputDirectory.set(project.layout.buildDirectory.dir("mpvKmp/iosNativeLibs"))
+            task.nativeLibrariesOverride.set(extension.iosNativeDirectoryOverride)
+            localIosNativeRoot?.let { task.localNativeLibrariesDirectory.set(it) }
+            task.nativeLibraryArchives.from(iosNativeArchive)
         }
         val embedIosDylibs = project.tasks.register(
             "embedMpvKmpIosDylibsForXcode",
@@ -234,7 +259,7 @@ abstract class EmbedMpvKmpAppleFrameworkForXcodeTask : DefaultTask() {
     }
 }
 
-@DisableCachingByDefault(because = "Copies binary resources bundled with the Gradle plugin.")
+@DisableCachingByDefault(because = "Copies externally built native libraries into application resources.")
 abstract class ExtractMpvKmpDesktopNativeLibsTask : DefaultTask() {
     @get:Input
     abstract val platform: Property<String>
@@ -246,6 +271,15 @@ abstract class ExtractMpvKmpDesktopNativeLibsTask : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val nativeLibrariesOverride: DirectoryProperty
+
+    @get:Optional
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val localNativeLibrariesDirectory: DirectoryProperty
+
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val nativeLibraryArchives: ConfigurableFileCollection
 
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
@@ -263,9 +297,14 @@ abstract class ExtractMpvKmpDesktopNativeLibsTask : DefaultTask() {
             return
         }
 
-        if (nativeLibrariesOverride.isPresent) {
+        val sourceRoot = when {
+            nativeLibrariesOverride.isPresent -> nativeLibrariesOverride.get().asFile
+            localNativeLibrariesDirectory.isPresent -> localNativeLibrariesDirectory.get().asFile
+            else -> null
+        }
+        if (sourceRoot != null) {
             val sourceDir = DesktopNativeLibraries.resolvePlatformDirectory(
-                nativeLibrariesOverride.get().asFile,
+                sourceRoot,
                 platformId
             )
             require(sourceDir.isDirectory) {
@@ -284,10 +323,36 @@ abstract class ExtractMpvKmpDesktopNativeLibsTask : DefaultTask() {
             return
         }
 
+        val archive = nativeLibraryArchives.files.singleOrNull()
+        if (archive != null) {
+            ZipFile(archive).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (entry.isDirectory) continue
+                    require('/' !in entry.name && '\\' !in entry.name) {
+                        "Unexpected nested entry in mpv desktop native archive: ${entry.name}"
+                    }
+                    val target = outputDir.resolve(entry.name)
+                    zip.getInputStream(entry).use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    target.setWritable(true)
+                }
+            }
+            require(outputDir.listFiles()?.any { it.isFile } == true) {
+                "mpv desktop native archive is empty: ${archive.absolutePath}"
+            }
+            return
+        }
+
+        // Backward-compatible fallback for older plugin artifacts which bundled the
+        // libraries directly. New publications use per-platform ZIP classifiers.
         val names = DesktopNativeLibraries.bundledLibraryNames(javaClass.classLoader, platformId)
         require(names.isNotEmpty()) {
-            "Missing bundled mpv desktop native libraries for $platformId. " +
-                "Build them first or set mpvKmp.desktopNativeDirectoryOverride."
+            "Missing mpv desktop native libraries for $platformId. Ensure the " +
+                "jvm-$platformId-native-libs plugin artifact is available from a dependency repository, " +
+                "build the local native libraries, or set mpvKmp.desktopNativeDirectoryOverride."
         }
 
         names.forEach { name ->
@@ -302,14 +367,82 @@ abstract class ExtractMpvKmpDesktopNativeLibsTask : DefaultTask() {
     }
 }
 
-@DisableCachingByDefault(because = "Copies binary resources bundled with the Gradle plugin.")
+@DisableCachingByDefault(because = "Copies externally built native libraries into the Xcode bundle inputs.")
 abstract class ExtractMpvKmpIosDylibsTask : DefaultTask() {
+    @get:Optional
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val nativeLibrariesOverride: DirectoryProperty
+
+    @get:Optional
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val localNativeLibrariesDirectory: DirectoryProperty
+
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val nativeLibraryArchives: ConfigurableFileCollection
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
     @TaskAction
     fun extract() {
         val outputRoot = outputDirectory.get().asFile
+        if (outputRoot.exists()) {
+            outputRoot.deleteRecursively()
+        }
+        outputRoot.mkdirs()
+
+        val sourceRoot = when {
+            nativeLibrariesOverride.isPresent -> nativeLibrariesOverride.get().asFile
+            localNativeLibrariesDirectory.isPresent -> localNativeLibrariesDirectory.get().asFile
+            else -> null
+        }
+        if (sourceRoot != null) {
+            NativeLibraries.applePlatforms.forEach { platform ->
+                val sourceDir = sourceRoot.resolve(platform)
+                if (!sourceDir.isDirectory) return@forEach
+                val outputDir = outputRoot.resolve(platform).apply { mkdirs() }
+                sourceDir.listFiles()
+                    ?.filter { it.isFile && it.name.startsWith("lib") && it.extension == "dylib" }
+                    ?.forEach { source ->
+                        source.copyTo(outputDir.resolve(source.name), overwrite = true).setWritable(true)
+                    }
+            }
+            require(outputRoot.resolve("iphoneos/libmpv.dylib").isFile) {
+                "Configured mpv iOS native directory is missing iphoneos/libmpv.dylib: ${sourceRoot.absolutePath}"
+            }
+            return
+        }
+
+        val archive = nativeLibraryArchives.files.singleOrNull()
+        if (archive != null) {
+            ZipFile(archive).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (entry.isDirectory) continue
+                    val normalized = entry.name.replace('\\', '/')
+                    val platform = normalized.substringBefore('/')
+                    val name = normalized.substringAfter('/', missingDelimiterValue = "")
+                    if (platform !in NativeLibraries.applePlatforms || '/' in name || name.isEmpty()) continue
+                    if (!name.startsWith("lib") || !name.endsWith(".dylib")) continue
+                    val outputDir = outputRoot.resolve(platform).apply { mkdirs() }
+                    val target = outputDir.resolve(name)
+                    zip.getInputStream(entry).use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    target.setWritable(true)
+                }
+            }
+            require(outputRoot.resolve("iphoneos/libmpv.dylib").isFile) {
+                "mpv iOS native archive is missing iphoneos/libmpv.dylib: ${archive.absolutePath}"
+            }
+            return
+        }
+
+        // Backward-compatible fallback for older plugin JARs.
         NativeLibraries.applePlatforms.forEach { platform ->
             val outputDir = outputRoot.resolve(platform)
             outputDir.mkdirs()
@@ -326,6 +459,11 @@ abstract class ExtractMpvKmpIosDylibsTask : DefaultTask() {
                 }
                 target.setWritable(true)
             }
+        }
+        require(outputRoot.resolve("iphoneos/libmpv.dylib").isFile) {
+            "Missing mpv iOS native libraries. Ensure the ios-native-libs plugin artifact is available " +
+                "from a dependency repository, build the local native libraries, or set " +
+                "mpvKmp.iosNativeDirectoryOverride."
         }
     }
 }
@@ -436,7 +574,6 @@ private object NativeLibraries {
 
     val names = listOf(
         "libavcodec.dylib",
-        "libavdevice.dylib",
         "libavfilter.dylib",
         "libavformat.dylib",
         "libavutil.dylib",
@@ -444,6 +581,36 @@ private object NativeLibraries {
         "libswresample.dylib",
         "libswscale.dylib"
     )
+}
+
+private fun Project.findLocalNativeDirectory(relativePath: String): File? {
+    val candidates = listOf(
+        rootProject.layout.projectDirectory.dir("mpv/core/$relativePath").asFile,
+        rootProject.layout.projectDirectory.dir("../mpv/core/$relativePath").asFile
+    )
+    return candidates.firstOrNull { candidate -> candidate.isDirectory }
+}
+
+private fun Project.nativeArchiveFiles(
+    classifier: String,
+    skipResolution: () -> Boolean
+): ConfigurableFileCollection {
+    val files = objects.fileCollection()
+    val pluginVersion = MpvKmpPlugin::class.java.`package`.implementationVersion
+        ?.takeUnless { it.isBlank() }
+        ?: return files
+    val dependency = dependencies.create(
+        "com.guyuuan.mpv_kmp:mpv-gradle-plugin:$pluginVersion:$classifier@zip"
+    )
+    val configuration = configurations.detachedConfiguration(dependency).apply {
+        isTransitive = false
+    }
+    afterEvaluate {
+        if (!skipResolution()) {
+            files.from(configuration)
+        }
+    }
+    return files
 }
 
 private object DesktopNativeLibraries {
