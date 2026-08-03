@@ -454,7 +454,7 @@ should_copy_resource_lib () {
         macos:*.[0-9]*.dylib|ios:*.[0-9]*.dylib)
             return 1
         ;;
-        android:*.so|macos:*.dylib|ios:*.dylib|linux:*.so|linux:*.so.*|windows:*.dll)
+        android:*.so|macos:*.dylib|ios:*.dylib|linux:*.so|windows:*.dll)
             return 0
         ;;
         *)
@@ -506,6 +506,13 @@ rewrite_macos_resource_dylibs () {
     done
 }
 
+linux_unversioned_so_name () {
+    case "$1" in
+        *.so.*) printf '%s.so\n' "${1%%.so.*}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
 rewrite_linux_resource_sonames () {
     [ "$platform" = "linux" ] || return 0
 
@@ -515,11 +522,24 @@ rewrite_linux_resource_sonames () {
     }
 
     local dst_dir="$1"
-    local lib
-    for lib in "$dst_dir"/*.so "$dst_dir"/*.so.*; do
+    local lib name dep unversioned_dep
+    for lib in "$dst_dir"/*.so; do
         [ -e "$lib" ] || continue
         chmod u+w "$lib"
+        name="$(basename "$lib")"
+        patchelf --set-soname "$name" "$lib"
         patchelf --set-rpath '$ORIGIN' "$lib"
+    done
+
+    for lib in "$dst_dir"/*.so; do
+        [ -e "$lib" ] || continue
+        while read -r dep; do
+            [ -n "$dep" ] || continue
+            unversioned_dep="$(linux_unversioned_so_name "$dep")"
+            [ "$unversioned_dep" != "$dep" ] || continue
+            [ -f "$dst_dir/$unversioned_dep" ] || continue
+            patchelf --replace-needed "$dep" "$unversioned_dep" "$lib"
+        done < <(patchelf --print-needed "$lib")
     done
 }
 

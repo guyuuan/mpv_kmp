@@ -96,6 +96,23 @@ gl_cocoa_opt="-Dgl-cocoa=disabled"
 [ "$platform" = "macos" ] && gl_cocoa_opt="-Dgl-cocoa=enabled"
 android_link_opts=
 [ "$platform" = "android" ] && android_link_opts="-Dc_link_args=-lc++_shared"
+mpv_compile_args="-DNO_BUILD_TIMESTAMPS"
+[ -n "${CFLAGS:-}" ] && mpv_compile_args="$CFLAGS $mpv_compile_args"
+mpv_swift_flags=
+if [ "$platform" = "macos" ]; then
+    case "$target_triple" in
+        arm64-apple-darwin)
+            mpv_swift_flags="-target arm64-apple-macosx11.0"
+        ;;
+        x86_64-apple-darwin)
+            mpv_swift_flags="-target x86_64-apple-macosx11.0"
+        ;;
+        *)
+            echo "Unsupported macOS target triple for Swift: $target_triple" >&2
+            exit 1
+        ;;
+    esac
+fi
 meson_setup_args=("$build")
 [ -f "$build/meson-private/coredata.dat" ] && meson_setup_args+=(--reconfigure --clearcache)
 [ -n "$meson_native_file" ] && meson_setup_args+=(--native-file "$meson_native_file")
@@ -111,7 +128,9 @@ meson setup "${meson_setup_args[@]}" --cross-file "$prefix_dir"/crossfile.txt \
     -Dmanpage-build=disabled \
     -Dmacos-cocoa-cb=disabled -Dmacos-media-player=disabled -Dmacos-touchbar=disabled \
     $gl_cocoa_opt -Dplain-gl=enabled \
-    -Dc_args=-DNO_BUILD_TIMESTAMPS \
+    "-Dc_args=$mpv_compile_args" \
+    "-Dobjc_args=$mpv_compile_args" \
+    "-Dswift-flags=$mpv_swift_flags" \
     $android_link_opts \
     $( [ "$cross_system" = "windows" ] && echo "-Dzlib=disabled" )
 
