@@ -21,6 +21,7 @@ if [ "$platform" == "android" ]; then
         -Dlua_fseek
     )
 fi
+lua_cflags="${CFLAGS:+$CFLAGS }${mycflags[*]}"
 
 # LUA_T= and LUAC_T= to disable building lua & luac
 # -Dgetlocaledecpoint()=('.') fixes bionic missing decimal_point in localeconv
@@ -30,7 +31,7 @@ plat=posix
 [ "$platform" == "macos" ] && plat=macosx
 [ "$platform" == "windows" ] && plat=mingw
 make CC="$CC" AR="$AR rc" RANLIB="$RANLIB" \
-    MYCFLAGS="${mycflags[*]}" \
+    MYCFLAGS="$lua_cflags" \
     PLAT=$plat LUA_T= LUAC_T= -j$cores
 
 # TO_BIN=/dev/null disables installing lua & luac

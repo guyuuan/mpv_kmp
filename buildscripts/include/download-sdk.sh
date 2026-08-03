@@ -37,7 +37,7 @@ elif [ "$os" == "mac" ]; then
 			exit 255
 		fi
 		brew install \
-			automake autoconf libtool pkg-config \
+			automake autoconf libtool pkg-config mingw-w64 \
 			coreutils gnu-sed wget meson ninja llvm zig nasm
 	fi
 	prefix_llvm=$(brew --prefix llvm 2>/dev/null || true)

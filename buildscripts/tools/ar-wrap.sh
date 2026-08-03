@@ -1,6 +1,17 @@
 #!/bin/bash
 set -e
-cmd="${AR_REAL:-llvm-ar}"
+if [ -n "${AR_REAL:-}" ]; then
+  cmd=("$AR_REAL")
+elif command -v llvm-ar >/dev/null 2>&1; then
+  cmd=(llvm-ar)
+elif command -v zig >/dev/null 2>&1; then
+  cmd=(zig ar)
+elif command -v ar >/dev/null 2>&1; then
+  cmd=(ar)
+else
+  echo "No compatible archiver found; install llvm-ar or Zig, or set AR_REAL." >&2
+  exit 1
+fi
 args=()
 processed_flags=0
 for a in "$@"; do
@@ -14,4 +25,4 @@ for a in "$@"; do
   fi
   args+=("$a")
 done
-exec "$cmd" "${args[@]}"
+exec "${cmd[@]}" "${args[@]}"
