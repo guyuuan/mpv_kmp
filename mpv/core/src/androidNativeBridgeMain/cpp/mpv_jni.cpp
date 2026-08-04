@@ -2,6 +2,7 @@
 #include <dlfcn.h>
 #include <cstdint>
 #include <android/log.h>
+#include "mpv_bridge.h"
 
 #define LOG_TAG "mpv_kmp"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -179,14 +180,14 @@ static void set_surface_wid() {
     }
 }
 
-extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
+extern "C" int32_t mpv_bridge_on_load(void* vm_ptr, void*) {
+    auto* vm = static_cast<JavaVM*>(vm_ptr);
     java_vm_ptr = vm;
     register_java_vm();
     return JNI_VERSION_1_6;
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvInit(JNIEnv*, jclass) {
+extern "C" uint8_t mpv_bridge_init(void*, void*) {
     resolve();
     if (!p_mpv_create || !p_mpv_initialize || !p_mpv_set_option_string ||
         !p_mpv_observe_property || !p_mpv_unobserve_property ||
@@ -232,8 +233,7 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvInit(JNIEnv*, jclass) {
     return JNI_TRUE;
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvCreate(JNIEnv*, jclass) {
+extern "C" uint8_t mpv_bridge_create(void*, void*) {
     resolve();
     if (!p_mpv_create || !p_mpv_initialize || !p_mpv_set_option_string ||
         !p_mpv_observe_property || !p_mpv_unobserve_property ||
@@ -251,8 +251,15 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvCreate(JNIEnv*, jclass) {
     return JNI_TRUE;
 }
 
-extern "C" JNIEXPORT jint JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvSetOption(JNIEnv* env, jclass, jstring name, jstring value) {
+extern "C" int32_t mpv_bridge_set_option(
+    void* env_ptr,
+    void*,
+    void* name_ptr,
+    void* value_ptr
+) {
+    auto* env = static_cast<JNIEnv*>(env_ptr);
+    auto name = static_cast<jstring>(name_ptr);
+    auto value = static_cast<jstring>(value_ptr);
     if (!p_mpv_set_option_string || !mpv_handle_ptr || mpv_initialized) {
         LOGE("mpvSetOption called before create or after initialize");
         return -1;
@@ -268,8 +275,7 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvSetOption(JNIEnv* env, jclass, jstring na
     return r;
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvInitialize(JNIEnv*, jclass) {
+extern "C" uint8_t mpv_bridge_initialize(void*, void*) {
     if (!p_mpv_initialize || !mpv_handle_ptr) {
         LOGE("mpvInitialize called before mpv was created");
         return JNI_FALSE;
@@ -295,8 +301,9 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvInitialize(JNIEnv*, jclass) {
     return JNI_TRUE;
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvAttachSurface(JNIEnv* env, jclass, jobject surface) {
+extern "C" void mpv_bridge_attach_surface(void* env_ptr, void*, void* surface_ptr) {
+    auto* env = static_cast<JNIEnv*>(env_ptr);
+    auto surface = static_cast<jobject>(surface_ptr);
     if (surface_ref) {
         env->DeleteGlobalRef(surface_ref);
         surface_ref = nullptr;
@@ -314,8 +321,8 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvAttachSurface(JNIEnv* env, jclass, jobjec
     }
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvDetachSurface(JNIEnv* env, jclass) {
+extern "C" void mpv_bridge_detach_surface(void* env_ptr, void*) {
+    auto* env = static_cast<JNIEnv*>(env_ptr);
     if (mpv_handle_ptr && p_mpv_set_property_string) {
         int r = p_mpv_set_property_string(mpv_handle_ptr, "wid", "0");
         if (r < 0) {
@@ -328,8 +335,9 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvDetachSurface(JNIEnv* env, jclass) {
     }
 }
 
-extern "C" JNIEXPORT jint JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvCommandString(JNIEnv* env, jclass, jstring cmd) {
+extern "C" int32_t mpv_bridge_command_string(void* env_ptr, void*, void* command_ptr) {
+    auto* env = static_cast<JNIEnv*>(env_ptr);
+    auto cmd = static_cast<jstring>(command_ptr);
     if (!p_mpv_command_string || !mpv_handle_ptr) {
         LOGE("mpvCommandString called before mpv was initialized");
         return -1;
@@ -343,8 +351,15 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvCommandString(JNIEnv* env, jclass, jstrin
     return r;
 }
 
-extern "C" JNIEXPORT jint JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvSetProperty(JNIEnv* env, jclass, jstring name, jstring value) {
+extern "C" int32_t mpv_bridge_set_property(
+    void* env_ptr,
+    void*,
+    void* name_ptr,
+    void* value_ptr
+) {
+    auto* env = static_cast<JNIEnv*>(env_ptr);
+    auto name = static_cast<jstring>(name_ptr);
+    auto value = static_cast<jstring>(value_ptr);
     if (!p_mpv_set_property_string || !mpv_handle_ptr) {
         LOGE("mpvSetProperty called before mpv was initialized");
         return -1;
@@ -360,8 +375,9 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvSetProperty(JNIEnv* env, jclass, jstring 
     return r;
 }
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvGetProperty(JNIEnv* env, jclass, jstring name) {
+extern "C" void* mpv_bridge_get_property(void* env_ptr, void*, void* name_ptr) {
+    auto* env = static_cast<JNIEnv*>(env_ptr);
+    auto name = static_cast<jstring>(name_ptr);
     if (!p_mpv_get_property_string || !mpv_handle_ptr || !p_mpv_free) return nullptr;
     const char* n = env->GetStringUTFChars(name, nullptr);
     char* out = p_mpv_get_property_string(mpv_handle_ptr, n);
@@ -372,8 +388,15 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvGetProperty(JNIEnv* env, jclass, jstring 
     return js;
 }
 
-extern "C" JNIEXPORT jint JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvObserveProperty(JNIEnv* env, jclass, jstring name, jlong reply_userdata, jint format) {
+extern "C" int32_t mpv_bridge_observe_property(
+    void* env_ptr,
+    void*,
+    void* name_ptr,
+    int64_t reply_userdata,
+    int32_t format
+) {
+    auto* env = static_cast<JNIEnv*>(env_ptr);
+    auto name = static_cast<jstring>(name_ptr);
     if (!p_mpv_observe_property || !mpv_handle_ptr) {
         LOGE("mpvObserveProperty called before mpv was initialized");
         return -1;
@@ -387,8 +410,7 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvObserveProperty(JNIEnv* env, jclass, jstr
     return r;
 }
 
-extern "C" JNIEXPORT jint JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvUnobserveProperty(JNIEnv*, jclass, jlong reply_userdata) {
+extern "C" int32_t mpv_bridge_unobserve_property(void*, void*, int64_t reply_userdata) {
     if (!p_mpv_unobserve_property || !mpv_handle_ptr) {
         LOGE("mpvUnobserveProperty called before mpv was initialized");
         return -1;
@@ -400,8 +422,8 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvUnobserveProperty(JNIEnv*, jclass, jlong 
     return r;
 }
 
-extern "C" JNIEXPORT jobject JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvWaitEvent(JNIEnv* env, jclass, jdouble timeout) {
+extern "C" void* mpv_bridge_wait_event(void* env_ptr, void*, double timeout) {
+    auto* env = static_cast<JNIEnv*>(env_ptr);
     if (!p_mpv_wait_event || !mpv_handle_ptr) return nullptr;
     mpv_event* e = p_mpv_wait_event(mpv_handle_ptr, timeout);
     if (!e || e->event_id == 0) return nullptr;
@@ -439,15 +461,14 @@ Java_com_guyuuan_mpv_1kmp_MpvNative_mpvWaitEvent(JNIEnv* env, jclass, jdouble ti
     );
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvWakeup(JNIEnv*, jclass) {
+extern "C" void mpv_bridge_wakeup(void*, void*) {
     if (p_mpv_wakeup && mpv_handle_ptr) {
         p_mpv_wakeup(mpv_handle_ptr);
     }
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_guyuuan_mpv_1kmp_MpvNative_mpvTerminate(JNIEnv* env, jclass) {
+extern "C" void mpv_bridge_terminate(void* env_ptr, void*) {
+    auto* env = static_cast<JNIEnv*>(env_ptr);
     if (p_mpv_terminate_destroy && mpv_handle_ptr) {
         if (p_mpv_wakeup) {
             p_mpv_wakeup(mpv_handle_ptr); // Wake up wait loop
