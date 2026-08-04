@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.kotlinJvm)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
-    id("com.guyuuan.mpv-kmp")
+    id("com.guyuuan.kmp.mpv")
 }
 
 dependencies {
@@ -16,7 +16,7 @@ dependencies {
 
 compose.desktop {
     application {
-        mainClass = "com.guyuuan.mpv_kmp.example.MainKt"
+        mainClass = "com.guyuuan.kmp.mpv.example.MainKt"
         jvmArgs(
             "--add-exports=java.desktop/sun.awt=ALL-UNNAMED",
             "--add-opens=java.desktop/sun.awt=ALL-UNNAMED"

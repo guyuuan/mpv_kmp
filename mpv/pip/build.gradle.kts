@@ -5,12 +5,12 @@ plugins {
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
-    `maven-publish`
+    alias(libs.plugins.mavenPublish)
 }
 
 kotlin {
     android {
-        namespace = "com.guyuuan.mpv_kmp.compose.pip"
+        namespace = "com.guyuuan.kmp.mpv.compose.pip"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         withHostTest {}

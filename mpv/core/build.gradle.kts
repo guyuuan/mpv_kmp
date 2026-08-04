@@ -13,7 +13,7 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
-    `maven-publish`
+    alias(libs.plugins.mavenPublish)
 }
 
 abstract class PrepareAndroidJniLibs : Sync() {
@@ -26,6 +26,7 @@ abstract class PrepareAndroidJniLibs : Sync() {
 }
 
 val androidNativeTargetNames = setOf("androidNativeArm64", "androidNativeX64")
+val nativeLegalResourcesDir = layout.projectDirectory.dir("src/commonMain/resources/META-INF")
 val androidNativeBridgeDir = layout.projectDirectory.dir("src/androidNativeBridgeMain/cpp")
 val androidNativeBridgeHeader = androidNativeBridgeDir.file("mpv_bridge.h").asFile
 val androidNativeBridgeSource = androidNativeBridgeDir.file("mpv_jni.cpp").asFile
@@ -44,7 +45,7 @@ fun KotlinNativeTarget.configureAndroidJniBridge() {
     compilations.getByName("main").cinterops.create("mpvBridge") {
         headers(androidNativeBridgeHeader)
         includeDirs(androidNativeBridgeDir)
-        packageName("com.guyuuan.mpv_kmp.bridge")
+        packageName("com.guyuuan.kmp.mpv.bridge")
         // Kotlin 2.4 requires indirect calls when C/C++ sources are compiled by cinterop.
         extraOpts(
             "-Xccall-mode",
@@ -73,6 +74,9 @@ val iosNativeLibrariesZip by tasks.registering(Zip::class) {
     from(iosNativeLibrariesDir) {
         include("lib*.dylib")
     }
+    from(nativeLegalResourcesDir) {
+        into("META-INF")
+    }
 }
 val desktopNativeResourcesDir = layout.projectDirectory.dir("src/jvmMain/resources").asFile
 val desktopNativePlatforms = desktopNativeResourcesDir
@@ -95,12 +99,32 @@ val desktopNativeLibrariesZips = desktopNativePlatforms.map { platform ->
         from(desktopNativeResourcesDir.resolve(platform)) {
             include("*")
         }
+        from(nativeLegalResourcesDir) {
+            into("META-INF")
+        }
+    }
+}
+
+mavenPublishing {
+    pom {
+        licenses {
+            license {
+                name.set("GNU Lesser General Public License, version 2.1 or later (bundled native libraries)")
+                url.set("https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html")
+                distribution.set("repo")
+            }
+            license {
+                name.set("GNU Lesser General Public License, version 3 or later (bundled native libraries)")
+                url.set("https://www.gnu.org/licenses/lgpl-3.0.html")
+                distribution.set("repo")
+            }
+        }
     }
 }
 
 kotlin {
     android {
-        namespace = "com.guyuuan.mpv_kmp.shared"
+        namespace = "com.guyuuan.kmp.mpv.shared"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         withHostTest {}

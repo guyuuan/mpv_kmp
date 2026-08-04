@@ -428,7 +428,7 @@ extern "C" void* mpv_bridge_wait_event(void* env_ptr, void*, double timeout) {
     mpv_event* e = p_mpv_wait_event(mpv_handle_ptr, timeout);
     if (!e || e->event_id == 0) return nullptr;
 
-    jclass dtoCls = env->FindClass("com/guyuuan/mpv_kmp/MpvEventDTO");
+    jclass dtoCls = env->FindClass("com/guyuuan/kmp/mpv/MpvEventDTO");
     jmethodID ctor = env->GetMethodID(dtoCls, "<init>", "(IIJLjava/lang/String;Ljava/lang/String;)V");
 
     jstring jName = nullptr;

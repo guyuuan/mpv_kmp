@@ -148,7 +148,7 @@ JVM 端可以使用成熟的 D-Bus Java 库实现 MPRIS。MPRIS 只是会话级�
 
 ### 1. 先调整播放器所有权
 
-当前 [`rememberMpvPlayer()`](../mpv/core/src/commonMain/kotlin/com/guyuuan/mpv_kmp/MpvPlayer.kt) 在 `DisposableEffect.onDispose` 中调用 `MpvPlayer.dispose()`，随后执行 `mpv.terminate()`。这意味着播放器的生命期与 Compose 页面绑定，页面离开后无法继续后台播放。
+当前 [`rememberMpvPlayer()`](../mpv/compose/src/commonMain/kotlin/com/guyuuan/kmp/mpv/MpvPlayer.kt) 在 `DisposableEffect.onDispose` 中调用 `MpvPlayer.dispose()`，随后执行 `mpv.terminate()`。这意味着播放器的生命期与 Compose 页面绑定，页面离开后无法继续后台播放。
 
 第一步应把播放器提升到平台级所有者：
 
