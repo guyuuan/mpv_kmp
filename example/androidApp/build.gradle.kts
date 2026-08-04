@@ -13,11 +13,11 @@ kotlin {
 }
 
 android {
-    namespace = "com.guyuuan.mpv_kmp.example"
+    namespace = "com.guyuuan.kmp.mpv.example"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.guyuuan.mpv_kmp.example"
+        applicationId = "com.guyuuan.kmp.mpv.example"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1

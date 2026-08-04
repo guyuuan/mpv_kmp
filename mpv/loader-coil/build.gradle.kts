@@ -3,12 +3,12 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
-    `maven-publish`
+    alias(libs.plugins.mavenPublish)
 }
 
 kotlin {
     android {
-        namespace = "com.guyuuan.mpv_kmp.loader.coil"
+        namespace = "com.guyuuan.kmp.mpv.loader.coil"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         withHostTest {}

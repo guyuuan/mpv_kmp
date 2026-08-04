@@ -5,7 +5,7 @@
 
     <application>
         <service
-            android:name="com.guyuuan.mpv_kmp.service.MpvMediaSessionService"
+            android:name="com.guyuuan.kmp.mpv.service.MpvMediaSessionService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>

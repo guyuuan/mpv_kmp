@@ -6,7 +6,7 @@ The project follows the updated Kotlin Multiplatform structure with separate mod
   Its Android target packages a Kotlin/Native JNI bridge for `arm64-v8a` and `x86_64` directly in the AAR.
 * [/mpv/compose](./mpv/compose) contains the Compose player state and platform video rendering controls.
 * [/mpv/service](./mpv/service) adds application-level playback ownership, platform media sessions, interruption handling, and playback restoration.
-* [/mpv/service-coil](./mpv/service-coil) resolves playback artwork URIs with Coil on Android, iOS, and Desktop (JVM).
+* [/mpv/loader-coil](./mpv/loader-coil) resolves playback artwork URIs with Coil on Android, iOS, and Desktop (JVM).
 * [/example/shared](./example/shared/src) contains shared Compose UI for the sample app and exports the iOS framework.
 * [/example/androidApp](./example/androidApp/src) contains the Android application entry point and Android app configuration.
 * [/example/desktopApp](./example/desktopApp/src) contains the Desktop (JVM) application entry point and desktop packaging configuration.
@@ -46,11 +46,11 @@ application resources for native distributions.
 
 ```kotlin
 plugins {
-    id("com.guyuuan.mpv-kmp")
+    id("com.guyuuan.kmp.mpv") version "<version>"
 }
 
 dependencies {
-    implementation("com.guyuuan.mpv_kmp:mpv:<version>")
+    implementation("com.guyuuan.kmp.mpv:core:<version>")
 }
 ```
 
@@ -89,13 +89,13 @@ desktop-only consumers download iOS binaries.
 
 ```kotlin
 plugins {
-    id("com.guyuuan.mpv-kmp")
+    id("com.guyuuan.kmp.mpv") version "<version>"
 }
 
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.guyuuan.mpv_kmp:mpv:<version>")
+            implementation("com.guyuuan.kmp.mpv:core:<version>")
         }
     }
 }
@@ -131,6 +131,25 @@ The Android library AAR still exposes both supported ABIs (`arm64-v8a` and `x86_
 produces one APK per ABI and keeps ABI splitting enabled for Android App Bundles, so an installed APK does not carry
 both native-library sets. Applications consuming the library should use the same `splits.abi` configuration when
 publishing standalone APKs; Play-generated APKs from an AAB are ABI-specific.
+
+### Maven Central
+
+Published library modules use the `com.guyuuan.kmp.mpv` group:
+
+| Module | Root artifact |
+| --- | --- |
+| Core player bindings | `com.guyuuan.kmp.mpv:core:<version>` |
+| Compose integration | `com.guyuuan.kmp.mpv:compose:<version>` |
+| Playback service | `com.guyuuan.kmp.mpv:service:<version>` |
+| Picture-in-picture integration | `com.guyuuan.kmp.mpv:pip:<version>` |
+| Coil artwork loader | `com.guyuuan.kmp.mpv:loader-coil:<version>` |
+
+Published Kotlin APIs use the `com.guyuuan.kmp.mpv` package. The Gradle
+integration uses the matching `com.guyuuan.kmp.mpv` plugin ID and publishes its
+implementation as `com.guyuuan.kmp.mpv:mpv-gradle-plugin:<version>`.
+
+Kotlin Multiplatform resolves the platform-specific artifacts such as `core-android`, `core-jvm`, and
+`core-iosarm64` from the root module metadata.
 
 ---
 

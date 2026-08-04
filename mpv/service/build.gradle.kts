@@ -5,7 +5,7 @@ import org.gradle.language.jvm.tasks.ProcessResources
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
-    `maven-publish`
+    alias(libs.plugins.mavenPublish)
 }
 
 val generatedJvmResources = layout.buildDirectory.dir("generated/serviceResources/jvmMain")
@@ -112,7 +112,7 @@ val windowsSmtcBridgeTask = tasks.register<Exec>("compileWindowsX8664SmtcBridge"
 
 kotlin {
     android {
-        namespace = "com.guyuuan.mpv_kmp.service"
+        namespace = "com.guyuuan.kmp.mpv.service"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         withHostTest {}

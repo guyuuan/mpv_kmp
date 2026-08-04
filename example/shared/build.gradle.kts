@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    id("com.guyuuan.mpv-kmp")
+    id("com.guyuuan.kmp.mpv")
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
@@ -10,7 +10,7 @@ plugins {
 
 kotlin {
     android {
-        namespace = "com.guyuuan.mpv_kmp.example.shared"
+        namespace = "com.guyuuan.kmp.mpv.example.shared"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         compilerOptions {
