@@ -3,7 +3,7 @@ This is a Kotlin Multiplatform project targeting Android, iOS, and Desktop (JVM)
 The project follows the updated Kotlin Multiplatform structure with separate modules for shared code and runnable app entry points:
 
 * [/mpv/core](./mpv/core/src) contains the reusable multiplatform libmpv interop layer.
-* [/mpv/core/androidNative](./mpv/core/androidNative/src) contains the Android-only CMake/JNI bridge consumed by `mpv/core`.
+  Its Android target packages a Kotlin/Native JNI bridge for `arm64-v8a` and `x86_64` directly in the AAR.
 * [/mpv/compose](./mpv/compose) contains the Compose player state and platform video rendering controls.
 * [/mpv/service](./mpv/service) adds application-level playback ownership, platform media sessions, interruption handling, and playback restoration.
 * [/mpv/service-coil](./mpv/service-coil) resolves playback artwork URIs with Coil on Android, iOS, and Desktop (JVM).

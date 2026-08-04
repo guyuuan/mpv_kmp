@@ -35,7 +35,6 @@ plugins {
 }
 
 include(":mpv:core")
-include(":mpv:core:androidNative")
 include(":mpv:compose")
 include(":mpv:pip")
 include(":mpv:service")

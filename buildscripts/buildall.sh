@@ -761,7 +761,7 @@ copy_to_resources () {
             esac
             local src="$prefix_dir/lib"
             [ -d "$src" ] || return 0
-            local dst="$PWD/../mpv/core/androidNative/libs/$android_abi"
+            local dst="$PWD/../mpv/core/src/androidMain/jniLibs/$android_abi"
             mkdir -p "$dst"
             rm -f "$dst"/*.so
             copy_resource_libs_from_dir "$src" "$dst"
