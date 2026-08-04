@@ -1,5 +1,6 @@
 package com.guyuuan.mpv_kmp
 
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import cnames.structs.mpv_handle
 import cnames.structs.mpv_render_context
 import cnames.structs.__CVBuffer
@@ -68,8 +69,8 @@ private var openGlEsFrameworkHandle: COpaquePointer? = null
 
 @OptIn(ExperimentalForeignApi::class)
 private class IosMpv(
-    config: Map<String, String> = DEFAULT_CONFIG
-) : AbsMpv(config), IosRenderContextSupport {
+    config: Map<String, String> = emptyMap()
+) : AbsMpv(DEFAULT_CONFIG + config), IosRenderContextSupport {
     private companion object {
         val DEFAULT_CONFIG: Map<String, String> = Mpv.DEFAULT_CONFIG + mapOf(
             "vo" to "libmpv",
@@ -592,6 +593,6 @@ private class IosMpv(
     }
 }
 
-internal actual fun createMpv(): Mpv = IosMpv()
+internal actual fun createMpv(config: MpvConfig): Mpv = IosMpv(config.toMap())
 
 private const val SAMPLE_BUFFER_FRAME_RATE = 30

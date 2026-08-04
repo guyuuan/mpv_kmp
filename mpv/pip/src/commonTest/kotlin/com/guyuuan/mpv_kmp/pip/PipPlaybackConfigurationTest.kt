@@ -1,5 +1,7 @@
 package com.guyuuan.mpv_kmp.pip
 
+import com.guyuuan.mpv_kmp.config.FontConfig
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.service.InMemoryPlaybackStateStore
 import com.guyuuan.mpv_kmp.service.MediaCommandType
 import com.guyuuan.mpv_kmp.service.NoopPlatformMediaIntegration
@@ -32,8 +34,12 @@ class PipPlaybackConfigurationTest {
         }
         val stateStore = InMemoryPlaybackStateStore()
         val expectedFailure = IllegalStateException("factory invoked")
+        val mpvConfig = MpvConfig(
+            fontConfig = FontConfig(subFont = "Noto Sans CJK SC")
+        )
         var receivedEnvironment: PipPlaybackCoordinatorEnvironment? = null
         val configuration = pipPlaybackConfiguration {
+            this.mpvConfig = mpvConfig
             artworkLoaderFactory = loaderFactory
             availableCommands = setOf(MediaCommandType.Play)
             coordinatorFactory = PipPlaybackCoordinatorFactory { environment ->
@@ -52,6 +58,7 @@ class PipPlaybackConfigurationTest {
         assertSame(expectedFailure, actualFailure)
         assertSame(NoopPlatformMediaIntegration, receivedEnvironment?.mediaIntegration)
         assertSame(stateStore, receivedEnvironment?.defaultStateStore)
+        assertSame(mpvConfig, receivedEnvironment?.mpvConfig)
         assertSame(loaderFactory, receivedEnvironment?.artworkLoaderFactory)
         assertEquals(
             setOf(MediaCommandType.Play),

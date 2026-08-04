@@ -1,5 +1,6 @@
 package com.guyuuan.mpv_kmp
 
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import com.guyuuan.mpv_kmp.props.MpvAudioProperties
@@ -10,8 +11,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 private class AndroidMpv(
-    config: Map<String, String> = DEFAULT_CONFIG
-) : AbsMpv(config) {
+    config: Map<String, String> = emptyMap()
+) : AbsMpv(DEFAULT_CONFIG + config) {
     private companion object {
         val DEFAULT_CONFIG: Map<String, String> = Mpv.DEFAULT_CONFIG+ mapOf(
             "vo" to "gpu",
@@ -186,4 +187,4 @@ private class AndroidMpv(
     }
 }
 
-internal actual fun createMpv(): Mpv = AndroidMpv()
+internal actual fun createMpv(config: MpvConfig): Mpv = AndroidMpv(config.toMap())

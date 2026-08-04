@@ -9,6 +9,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.util.UnstableApi
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.service.AndroidPlaybackCoordinatorOwner
 import com.guyuuan.mpv_kmp.service.AndroidPlaybackStateStore
 import kotlinx.coroutines.CoroutineScope
@@ -17,11 +18,11 @@ import kotlinx.coroutines.SupervisorJob
 
 @OptIn(UnstableApi::class)
 @Composable
-actual fun rememberPipMpvPlayer(): PipMpvPlayer {
+actual fun rememberPipMpvPlayer(config: MpvConfig): PipMpvPlayer {
     val context = LocalContext.current.applicationContext
     val activity = LocalContext.current.findComponentActivity()
-    val coordinator = remember(context) {
-        AndroidPlaybackCoordinatorOwner.coordinator(context)
+    val coordinator = remember(context, config) {
+        AndroidPlaybackCoordinatorOwner.coordinator(context, config)
     }
     val mediaSessionConnection = remember(context, activity) {
         AndroidMediaSessionConnection(context)

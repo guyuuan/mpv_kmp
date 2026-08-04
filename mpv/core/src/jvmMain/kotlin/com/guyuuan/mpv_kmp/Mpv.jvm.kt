@@ -1,5 +1,6 @@
 package com.guyuuan.mpv_kmp
 
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import com.guyuuan.mpv_kmp.jni.LocaleSetter
@@ -63,8 +64,8 @@ internal fun desktopRenderMode(): RenderMode {
 //}
 
 internal class JvmMpv(
-    config: Map<String, String> = DEFAULT_CONFIG
-) : AbsMpv(config), SoftwareRenderContextSupport, HardwareRenderSupport {
+    config: Map<String, String> = emptyMap()
+) : AbsMpv(DEFAULT_CONFIG + config), SoftwareRenderContextSupport, HardwareRenderSupport {
     private companion object {
         val DEFAULT_CONFIG: Map<String, String> = Mpv.DEFAULT_CONFIG + mapOf(
             "vo" to "libmpv",
@@ -669,4 +670,4 @@ internal class JvmMpv(
 }
 
 
-internal actual fun createMpv(): Mpv = JvmMpv()
+internal actual fun createMpv(config: MpvConfig): Mpv = JvmMpv(config.toMap())

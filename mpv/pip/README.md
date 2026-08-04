@@ -73,12 +73,21 @@ Android 会等待播放器 View 完成当前布局、刷新
 
 需要自定义命令集合或封面加载器时，应在 `Application.onCreate` 中、首次启动
 `MpvMediaSessionService` 或调用 `rememberPipMpvPlayer()` 之前配置进程级 owner。配置保存
-`PlaybackArtworkLoaderFactory`，Coordinator 初始化时只创建并持有一个 loader：
+`MpvConfig` 和 `PlaybackArtworkLoaderFactory`，Coordinator 初始化时读取全局 mpv 配置，
+并且只创建和持有一个 loader：
 
 ```kotlin
 override fun onCreate() {
     super.onCreate()
     configurePipPlayback {
+        mpvConfig = MpvConfig(
+            fontConfig = FontConfig(
+                subFontsDir = filesDir.resolve("fonts").absolutePath,
+                subFont = "Noto Sans CJK SC",
+                subFontSize = 38f,
+                subMarginY = 80
+            )
+        )
         artworkLoaderFactory = CoilPlaybackArtworkLoaderFactory(
             context = applicationContext,
             imageLoader = applicationImageLoader
@@ -88,7 +97,8 @@ override fun onCreate() {
 ```
 
 `configurePipPlayback` 是跨平台的一次性入口；播放器或媒体服务初始化后再调用、或重复配置
-都会抛出异常。绝大多数应用只需设置 `artworkLoaderFactory`。需要替换 Coordinator 创建
+都会抛出异常。只要全局配置已经完成安装，Android 的媒体服务即使先于 Compose 页面创建，
+也会使用这里的 `mpvConfig`。需要替换 Coordinator 创建
 逻辑时，可设置 `coordinatorFactory`，并优先使用
 `PipPlaybackCoordinatorEnvironment.createDefault()` 保留平台媒体集成、默认状态存储、
 命令集合与封面加载器。

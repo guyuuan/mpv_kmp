@@ -6,6 +6,7 @@ import com.guyuuan.mpv_kmp.MpvPlayerCapability
 import com.guyuuan.mpv_kmp.MpvPlayerSnapshot
 import com.guyuuan.mpv_kmp.MpvPlayerState
 import com.guyuuan.mpv_kmp.MpvVideoOutput
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.data.MpvAudioTrack
 import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
 import com.guyuuan.mpv_kmp.data.MpvSubtitleTrack
@@ -215,7 +216,7 @@ internal fun PlaybackSnapshot.toMpvPlayerSnapshot(): MpvPlayerSnapshot = MpvPlay
 )
 
 @Composable
-expect fun rememberPipMpvPlayer(): PipMpvPlayer
+expect fun rememberPipMpvPlayer(config: MpvConfig = MpvConfig()): PipMpvPlayer
 
 private const val MILLIS_PER_SECOND = 1_000.0
 private const val MAX_MPV_VOLUME = 100f
