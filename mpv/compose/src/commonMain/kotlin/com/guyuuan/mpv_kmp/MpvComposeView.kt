@@ -2,6 +2,7 @@ package com.guyuuan.mpv_kmp
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import co.touchlab.kermit.Logger
 
 @Composable
 fun MpvComposeView(
@@ -32,5 +33,5 @@ internal expect fun MpvVideoOutputView(
 )
 
 internal fun Mpv.reportRenderError(message: String, cause: Throwable? = null) {
-    println("MpvComposeView: render failed: $message${cause?.let { ": $it" } ?: ""}")
+    Logger.e(throwable = cause, tag = "MpvComposeView") { "render failed: $message" }
 }

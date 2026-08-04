@@ -11,6 +11,7 @@ import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import com.guyuuan.mpv_kmp.mpv.*
 import com.guyuuan.mpv_kmp.props.MpvAudioProperties
 import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
+import co.touchlab.kermit.Logger
 import kotlinx.cinterop.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -104,7 +105,7 @@ private class IosMpv(
         }
         val r = mpv_initialize(h)
         if (r != 0) {
-            println("IosMpv: mpv_initialize failed: $r (${mpvError(r)})")
+            Logger.e(tag = "IosMpv") { "mpv_initialize failed: $r (${mpvError(r)})" }
             mpv_terminate_destroy(h)
             handle = null
             return false
@@ -117,7 +118,9 @@ private class IosMpv(
         val h = handle ?: return -1
         val result = mpv_set_option_string(h, name, value)
         if (result < 0) {
-            println("IosMpv: failed to set $name=$value: $result (${mpvError(result)})")
+            Logger.e(tag = "IosMpv") {
+                "failed to set $name=$value: $result (${mpvError(result)})"
+            }
         }
         return result
     }
@@ -162,7 +165,9 @@ private class IosMpv(
         observedProperties[name] = observerId
         val result = mpv_observe_property(h, observerId, name, MPV_FORMAT_STRING)
         if (result != 0) {
-            println("IosMpv: observeProperty failed: $result (${mpvError(result)}), name=$name")
+            Logger.e(tag = "IosMpv") {
+                "observeProperty failed: $result (${mpvError(result)}), name=$name"
+            }
             if (observedProperties[name] == observerId) {
                 observedProperties.remove(name)
             }
@@ -176,7 +181,9 @@ private class IosMpv(
         val observerId = observedProperties[name] ?: return
         val result = mpv_unobserve_property(h, observerId)
         if (result < 0) {
-            println("IosMpv: removePropertyObservation failed: $result (${mpvError(result)}), name=$name")
+            Logger.e(tag = "IosMpv") {
+                "removePropertyObservation failed: $result (${mpvError(result)}), name=$name"
+            }
             return
         }
         observedProperties.remove(name)
@@ -282,7 +289,7 @@ private class IosMpv(
             val level = log.level?.toKString()
             val prefix = log.prefix?.toKString()
             val text = log.text?.toKString()
-            println("mpv[$level] $prefix: $text")
+            Logger.d(tag = "mpv.${prefix ?: "unknown"}") { "[$level] $text" }
         }
 
         if (type == MpvEventType.PropertyChange && event.data != null) {
@@ -343,16 +350,16 @@ private class IosMpv(
             if (result == 0) {
                 renderContext = out.value
                 renderContextType = RenderContextType.OpenGl
-                println("IosMpv: OpenGL mpv_render_context_create success")
+                Logger.d(tag = "IosMpv") { "OpenGL render context created" }
                 true
             } else {
-                println(
-                    "IosMpv: OpenGL mpv_render_context_create failed: $result (${
+                Logger.e(tag = "IosMpv") {
+                    "OpenGL render context creation failed: $result (${
                         mpvError(
                             result
                         )
                     })"
-                )
+                }
                 false
             }
         }
@@ -375,12 +382,12 @@ private class IosMpv(
             if (result == 0) {
                 renderContext = out.value
                 renderContextType = RenderContextType.Software
-                println("IosMpv: software mpv_render_context_create success")
+                Logger.d(tag = "IosMpv") { "software render context created" }
                 true
             } else {
-                println(
-                    "IosMpv: software mpv_render_context_create failed: $result (${mpvError(result)})"
-                )
+                Logger.e(tag = "IosMpv") {
+                    "software render context creation failed: $result (${mpvError(result)})"
+                }
                 false
             }
         }
@@ -430,7 +437,9 @@ private class IosMpv(
             if (result == 0) {
                 mpv_render_context_report_swap(ctx)
             } else {
-                println("IosMpv: mpv_render_context_render failed: $result (${mpvError(result)})")
+                Logger.e(tag = "IosMpv") {
+                    "OpenGL render failed: $result (${mpvError(result)})"
+                }
             }
             result
         }
@@ -454,14 +463,18 @@ private class IosMpv(
             )
             val pixelBuffer = pixelBufferOut.value
             if (pixelBufferResult != 0 || pixelBuffer == null) {
-                println("IosMpv: CVPixelBufferCreate failed: $pixelBufferResult")
+                Logger.e(tag = "IosMpv") {
+                    "CVPixelBufferCreate failed: $pixelBufferResult"
+                }
                 return@memScoped null
             }
 
             val lockResult = CVPixelBufferLockBaseAddress(pixelBuffer, 0uL)
             if (lockResult != 0) {
                 mpv_kmp_cf_release(pixelBuffer)
-                println("IosMpv: CVPixelBufferLockBaseAddress failed: $lockResult")
+                Logger.e(tag = "IosMpv") {
+                    "CVPixelBufferLockBaseAddress failed: $lockResult"
+                }
                 return@memScoped null
             }
 
@@ -507,9 +520,9 @@ private class IosMpv(
             val formatDescription = formatDescriptionOut.value
             if (formatResult != 0 || formatDescription == null) {
                 mpv_kmp_cf_release(pixelBuffer)
-                println(
-                    "IosMpv: CMVideoFormatDescriptionCreateForImageBuffer failed: $formatResult"
-                )
+                Logger.e(tag = "IosMpv") {
+                    "CMVideoFormatDescriptionCreateForImageBuffer failed: $formatResult"
+                }
                 return@memScoped null
             }
 
@@ -524,7 +537,9 @@ private class IosMpv(
             mpv_kmp_cf_release(formatDescription)
             mpv_kmp_cf_release(pixelBuffer)
             if (sampleResult != 0 || sampleBuffer == null) {
-                println("IosMpv: CMSampleBufferCreateForImageBuffer failed: $sampleResult")
+                Logger.e(tag = "IosMpv") {
+                    "CMSampleBufferCreateForImageBuffer failed: $sampleResult"
+                }
                 return@memScoped null
             }
 
@@ -564,9 +579,9 @@ private class IosMpv(
 
         mpv_render_context_render(context, params).also { result ->
             if (result != 0) {
-                println(
-                    "IosMpv: software mpv_render_context_render failed: $result (${mpvError(result)})"
-                )
+                Logger.e(tag = "IosMpv") {
+                    "software render failed: $result (${mpvError(result)})"
+                }
             }
         }
     }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.UIKitView
+import co.touchlab.kermit.Logger
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.CoreGraphics.CGRect
@@ -172,7 +173,9 @@ private class IosMpvGlView(
         if (width <= 0 || height <= 0) {
             if (!loggedEmptySize) {
                 loggedEmptySize = true
-                println("IosMpvGlView: skip render for empty drawable ${width}x$height")
+                Logger.w(tag = "IosMpvGlView") {
+                    "skip render for empty drawable ${width}x$height"
+                }
             }
             return
         }
@@ -187,7 +190,7 @@ private class IosMpvGlView(
         glFlush()
         if (!loggedFirstRender) {
             loggedFirstRender = true
-            println("IosMpvGlView: rendered first GL frame ${width}x$height")
+            Logger.d(tag = "IosMpvGlView") { "rendered first GL frame ${width}x$height" }
         }
     }
 
@@ -195,7 +198,7 @@ private class IosMpvGlView(
         val success = EAGLContext.setCurrentContext(glContext)
         if (!success && !loggedContextFailure) {
             loggedContextFailure = true
-            println("IosMpvGlView: failed to set EAGLContext selected")
+            Logger.e(tag = "IosMpvGlView") { "failed to select EAGLContext" }
         }
         return success
     }

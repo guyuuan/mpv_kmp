@@ -27,6 +27,7 @@ kotlin {
         commonMain.dependencies {
             api(projects.mpv.compose)
             api(projects.mpv.service)
+            implementation(libs.kermit)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)

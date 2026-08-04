@@ -3,6 +3,7 @@ package com.guyuuan.mpv_kmp.service
 import android.content.Context
 import androidx.media3.common.util.UnstableApi
 import com.guyuuan.mpv_kmp.config.MpvConfig
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,11 +47,15 @@ object AndroidPlaybackCoordinatorOwner {
         synchronized(lock) {
 
             if (playback != null) {
-                println("AndroidPlaybackCoordinatorOwner is already initialized")
+                Logger.w(tag = "AndroidPlaybackCoordinatorOwner") {
+                    "owner is already initialized"
+                }
                 return
             }
             if (configuredFactory != null) {
-                println("AndroidPlaybackCoordinatorOwner is already configured")
+                Logger.w(tag = "AndroidPlaybackCoordinatorOwner") {
+                    "owner is already configured"
+                }
                 return
             }
             configuredFactory = factory

@@ -13,6 +13,7 @@ import com.guyuuan.mpv_kmp.data.MpvSubtitleTrack
 import com.guyuuan.mpv_kmp.props.MpvAudioProperties
 import com.guyuuan.mpv_kmp.props.MpvDecoderProperties
 import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -187,7 +188,7 @@ class LocalMpvPlayer(
         started = true
         if (!mpv.initialize()) {
             publish(snapshot.value.copy(state = MpvPlayerState.Error))
-            println("LocalMpvPlayer: initialize failed")
+            Logger.e(tag = "LocalMpvPlayer") { "initialize failed" }
             return false
         }
 
@@ -425,7 +426,7 @@ class LocalMpvPlayer(
     }
 
     internal fun reportRenderError(message: String, cause: Throwable? = null) {
-        println("LocalMpvPlayer: render failed: $message${cause?.let { ": $it" } ?: ""}")
+        Logger.e(throwable = cause, tag = "LocalMpvPlayer") { "render failed: $message" }
         publish(snapshot.value.copy(state = MpvPlayerState.Error))
     }
 

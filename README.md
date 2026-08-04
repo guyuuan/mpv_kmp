@@ -69,6 +69,12 @@ The JVM runtime loads native libraries in this order:
 Set `mpvKmp.desktopNativeDirectoryOverride` when an app wants to use externally built native libraries instead
 of the plugin-bundled resources.
 
+### Logging
+
+The library writes diagnostic output through [Kermit](https://kermit.touchlab.co/). Kermit's default
+platform logger works without application-side initialization. Applications that need custom filtering or log
+writers can add Kermit as a direct dependency and configure its global `Logger` before creating a player.
+
 ### Build and Run iOS Application
 
 To build and run the development version of the iOS app, use the run configuration from the run widget

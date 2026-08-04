@@ -10,6 +10,7 @@ import com.sun.jna.Structure
 import com.sun.jna.WString
 import com.sun.jna.ptr.IntByReference
 import com.sun.jna.ptr.PointerByReference
+import co.touchlab.kermit.Logger
 import java.io.File
 import java.net.JarURLConnection
 import java.nio.file.Files
@@ -20,13 +21,13 @@ import javax.swing.SwingUtilities
 
 internal fun nativeTrace(stage: String) {
     val t = Thread.currentThread()
-    println(
-        "NativeTrace[$stage] thread=${t.name}(${t.id}) edt=${SwingUtilities.isEventDispatchThread()} os=${
+    Logger.v(tag = "NativeTrace") {
+        "[$stage] thread=${t.name}(${t.id}) edt=${SwingUtilities.isEventDispatchThread()} os=${
             System.getProperty(
                 "os.name"
             )
         } arch=${System.getProperty("os.arch")}"
-    )
+    }
 }
 
 class mpv_event : Structure() {
@@ -178,7 +179,9 @@ internal object LocaleSetter {
                     return
                 }
             } catch (e: Throwable) {
-                println("NativeTrace[locale.fail.$name] $e")
+                Logger.e(throwable = e, tag = "NativeTrace") {
+                    "locale setup failed for $name"
+                }
             }
         }
         nativeTrace("locale.end.no_success")
@@ -312,7 +315,7 @@ private fun extractLibFromResources(platform: DesktopNativePlatform): ResolvedMp
 
     val libs = bundledLibraryNames(platformId)
     if (libs.isEmpty()) {
-        println("NativeTrace[extract.resources.empty] platform=$platformId")
+        Logger.w(tag = "NativeTrace") { "extract resources empty for platform=$platformId" }
         return null
     }
 
@@ -323,7 +326,7 @@ private fun extractLibFromResources(platform: DesktopNativePlatform): ResolvedMp
         val resourcePath = "/$platformId/$name"
         val stream = Mpv::class.java.getResourceAsStream(resourcePath)
         if (stream == null) {
-            println("Resource not found: $resourcePath")
+            Logger.w(tag = "MpvNative") { "resource not found: $resourcePath" }
             continue
         }
 
@@ -332,9 +335,13 @@ private fun extractLibFromResources(platform: DesktopNativePlatform): ResolvedMp
 
         try {
             Files.copy(stream, dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            println("NativeTrace[extract.copy] ${dest.absolutePath} size=${dest.length()}")
+            Logger.v(tag = "NativeTrace") {
+                "extract copy ${dest.absolutePath} size=${dest.length()}"
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Logger.e(throwable = e, tag = "MpvNative") {
+                "failed to extract $resourcePath"
+            }
         } finally {
             stream.close()
         }
@@ -342,9 +349,13 @@ private fun extractLibFromResources(platform: DesktopNativePlatform): ResolvedMp
 
     val resolved = resolveMpvLibraryInDirectory(tmpDir, platform, "jar-resources:${platform.id}")
     if (resolved != null) {
-        println("Extracted mpv libs to $tmpDir, main lib: ${resolved.mainLibraryPath}")
+        Logger.d(tag = "MpvNative") {
+            "extracted mpv libs to $tmpDir, main lib: ${resolved.mainLibraryPath}"
+        }
     } else {
-        println("Failed to extract mpv main library from resources for ${platform.id}.")
+        Logger.e(tag = "MpvNative") {
+            "failed to extract mpv main library for ${platform.id}"
+        }
     }
     return resolved
 }
@@ -469,7 +480,7 @@ private object GL {
         try {
             Native.load(libName, GLLibrary::class.java)
         } catch (e: Throwable) {
-            println("Failed to load OpenGL library: $e")
+            Logger.e(throwable = e, tag = "MpvNative") { "failed to load OpenGL library" }
             null
         }
     } else null
@@ -486,9 +497,13 @@ internal object MpvNative {
             val createAddr = raw.getFunction("mpv_create").hashCode()
             val verFn = raw.getFunction("mpv_client_api_version")
             val ver = verFn.invokeLong(emptyArray())
-            println("NativeTrace[mpv.probe] key=$libKey mpv_create=0x${createAddr.toString(16)} api=$ver")
+            Logger.d(tag = "NativeTrace") {
+                "mpv probe key=$libKey mpv_create=0x${createAddr.toString(16)} api=$ver"
+            }
         } catch (e: Throwable) {
-            println("NativeTrace[mpv.probe.fail] key=$libKey err=$e")
+            Logger.e(throwable = e, tag = "NativeTrace") {
+                "mpv probe failed for key=$libKey"
+            }
         }
     }
 
@@ -501,7 +516,9 @@ internal object MpvNative {
             try {
                 return@lazy loadResolvedLibrary(candidate)
             } catch (e: Throwable) {
-                println("NativeTrace[mpv.lib.load.${candidate.source}.fail] $e")
+                Logger.e(throwable = e, tag = "NativeTrace") {
+                    "mpv library load failed for ${candidate.source}"
+                }
                 failures += e
             }
         }
@@ -519,9 +536,10 @@ internal object MpvNative {
     }
 
     private fun loadResolvedLibrary(resolved: ResolvedMpvLibrary): MPVLibrary {
-        println(
-            "NativeTrace[mpv.lib.load.${resolved.source}] " + "platform=${resolved.platform.id} path=${resolved.mainLibraryPath} dir=${resolved.directory.absolutePath}"
-        )
+        Logger.d(tag = "NativeTrace") {
+            "mpv library load source=${resolved.source} platform=${resolved.platform.id} " +
+                "path=${resolved.mainLibraryPath} dir=${resolved.directory.absolutePath}"
+        }
         configureWindowsDllSearchPath(resolved)
         loadMacosShimForBundledMpv(resolved)
         preloadBundledDependencies(resolved)
@@ -540,12 +558,16 @@ internal object MpvNative {
         try {
             val kernel32 = Native.load("kernel32", WindowsKernel32Library::class.java)
             if (kernel32.SetDllDirectoryW(WString(path))) {
-                println("NativeTrace[mpv.lib.windows.dll_dir] path=$path")
+                Logger.d(tag = "NativeTrace") { "Windows DLL directory configured: $path" }
             } else {
-                println("NativeTrace[mpv.lib.windows.dll_dir.fail] path=$path")
+                Logger.e(tag = "NativeTrace") {
+                    "failed to configure Windows DLL directory: $path"
+                }
             }
         } catch (e: Throwable) {
-            println("NativeTrace[mpv.lib.windows.dll_dir.error] path=$path err=$e")
+            Logger.e(throwable = e, tag = "NativeTrace") {
+                "error configuring Windows DLL directory: $path"
+            }
         }
     }
 
@@ -554,7 +576,7 @@ internal object MpvNative {
         val options = mapOf(Library.OPTION_OPEN_FLAGS to (0x2 or 0x8)) // RTLD_NOW | RTLD_GLOBAL
         for (path in resolved.dependencyLibraryPaths) {
             NativeLibrary.getInstance(path, options)
-            println("NativeTrace[mpv.lib.dep.loaded] path=$path")
+            Logger.d(tag = "NativeTrace") { "mpv dependency loaded: $path" }
         }
     }
 
@@ -573,12 +595,11 @@ internal object MpvNative {
         if (resolved.platform.os != "darwin") return
         val shim = File(resolved.mainLibraryPath).resolveSibling("libmpv_kmp_macos_shim.dylib")
         if (!shim.isFile) {
-            println("NativeTrace[mpv.lib.shim.missing] path=${shim.absolutePath}")
+            Logger.w(tag = "NativeTrace") { "mpv shim missing: ${shim.absolutePath}" }
             return
         }
         val options = mapOf(Library.OPTION_OPEN_FLAGS to (0x2 or 0x8)) // RTLD_NOW | RTLD_GLOBAL
         NativeLibrary.getInstance(shim.absolutePath, options)
-        println("NativeTrace[mpv.lib.shim.loaded] path=${shim.absolutePath}")
+        Logger.d(tag = "NativeTrace") { "mpv shim loaded: ${shim.absolutePath}" }
     }
 }
-
