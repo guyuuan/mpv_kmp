@@ -63,7 +63,7 @@ coordinator.setQueue(
 
 模块清单已声明前台媒体播放权限和 `MpvMediaSessionService`。`AndroidMediaSessionIntegration` 实现公共层的 `PlatformMediaIntegration`，负责将 coordinator 状态发布给 Media3，并把系统命令路由回 coordinator。`AndroidPlaybackCoordinatorOwner` 在进程级唯一持有 libmpv、音频焦点和耳机断开监听；Compose PiP 播放器与 Service 共用该 owner。Service 只负责托管 `MediaSession` 和 `SimpleBasePlayer` 适配器，销毁 Service 会立即保存播放状态，但不会终止仍由应用级 owner 持有的播放。
 
-应用可直接通过 `SessionToken`/`MediaController` 连接该 Service，也可继承它并覆盖 `createPlaybackCoordinator(mediaIntegration)` 注入自己的配置；只有首次创建进程级 owner 的入口会执行该工厂。使用 `mpv/pip` 时，优先在 `Application.onCreate` 中调用跨平台的 `configurePipPlayback`；仅依赖 `mpv/service` 的 Android 应用仍可直接调用 `AndroidPlaybackCoordinatorOwner.configure`。两种配置方式都必须早于 owner 初始化且不能同时使用，传入的 `mediaIntegration` 必须继续交给新 coordinator。系统或控制器提供队列时，`MpvMedia3Player` 会将所有 `MediaItem` 转成 `PlaybackMetadata`，再统一交给 coordinator。
+应用可直接通过 `SessionToken`/`MediaController` 连接该 Service，也可继承它并覆盖 `createPlaybackCoordinator(mediaIntegration)` 注入自己的配置；只有首次创建进程级 owner 的入口会执行该工厂。使用 `mpv/pip` 时，优先在 `Application.onCreate` 中调用跨平台的 `configurePipPlayback`，并通过其 `mpvConfig` 属性配置 libmpv；这样即使 Service 先于 Compose 页面启动，也会使用同一份初始化配置。仅依赖 `mpv/service` 的 Android 应用仍可直接调用 `AndroidPlaybackCoordinatorOwner.configure`。两种配置方式都必须早于 owner 初始化且不能同时使用，传入的 `mediaIntegration` 必须继续交给新 coordinator。系统或控制器提供队列时，`MpvMedia3Player` 会将所有 `MediaItem` 转成 `PlaybackMetadata`，再统一交给 coordinator。
 
 Compose 应用可直接依赖 `mpv/pip` 并使用 `rememberPipMpvPlayer()`。返回的
 `PipMpvPlayer` 与 iOS 共用 `PlaybackCoordinatorMpvPlayer` 适配逻辑；视频

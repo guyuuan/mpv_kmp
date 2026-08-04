@@ -1,0 +1,37 @@
+diff --git a/sub/ass_mp.c b/sub/ass_mp.c
+index 7e81bb266d..2d13e20fb3 100644
+--- a/sub/ass_mp.c
++++ b/sub/ass_mp.c
+@@ -80,12 +80,31 @@ void mp_ass_configure_fonts(ASS_Renderer *priv, struct osd_style_opts *opts,
+                             struct mpv_global *global, struct mp_log *log)
+ {
+     void *tmp = talloc_new(NULL);
+-    char *default_font = mp_find_config_file(tmp, global, "subfont.ttf");
++    const char *default_font = mp_find_config_file(tmp, global, "subfont.ttf");
+     char *config       = mp_find_config_file(tmp, global, "fonts.conf");
+
+     if (default_font && !mp_path_exists(default_font))
+         default_font = NULL;
+
++#ifdef __ANDROID__
++    if (!default_font) {
++        static const char *const android_default_fonts[] = {
++            "/system/fonts/NotoSansCJK-Regular.ttc",
++            "/system/fonts/DroidSansFallback.ttf",
++            "/system/fonts/NotoSans-Regular.ttf",
++            "/system/fonts/Roboto-Regular.ttf",
++            "/system/fonts/DroidSans.ttf",
++        };
++        for (size_t i = 0; i < sizeof(android_default_fonts) /
++                                   sizeof(android_default_fonts[0]); i++) {
++            if (mp_path_exists(android_default_fonts[i])) {
++                default_font = android_default_fonts[i];
++                break;
++            }
++        }
++    }
++#endif
++
+     int font_provider = ASS_FONTPROVIDER_AUTODETECT;
+     if (opts->font_provider == 1)
+         font_provider = ASS_FONTPROVIDER_NONE;

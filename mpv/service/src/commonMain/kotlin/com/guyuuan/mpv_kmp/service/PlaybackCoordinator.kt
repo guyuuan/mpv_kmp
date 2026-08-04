@@ -2,6 +2,7 @@ package com.guyuuan.mpv_kmp.service
 
 import com.guyuuan.mpv_kmp.Mpv
 import com.guyuuan.mpv_kmp.MpvEventType
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.props.MpvAudioProperties
 import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
@@ -29,12 +30,13 @@ class PlaybackCoordinator(
     private val mediaIntegration: PlatformMediaIntegration = NoopPlatformMediaIntegration,
     private val stateStore: PlaybackStateStore? = null,
     availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
-    artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null
+    artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null,
+    private val mpvConfig: MpvConfig = MpvConfig()
 ) : MediaCommandHandler {
     private val ownsSharedMpv: Boolean = mpv == null
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val artworkLoader: PlaybackArtworkLoader? = artworkLoaderFactory?.create()
-    val player: Mpv = mpv ?: Mpv()
+    val player: Mpv = mpv ?: Mpv(mpvConfig)
 
     private val mutableSnapshot = MutableStateFlow(
         PlaybackSnapshot(availableCommands = availableCommands.toSet())

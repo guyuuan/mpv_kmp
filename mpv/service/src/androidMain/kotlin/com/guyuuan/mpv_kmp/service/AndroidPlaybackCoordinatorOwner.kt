@@ -2,10 +2,11 @@ package com.guyuuan.mpv_kmp.service
 
 import android.content.Context
 import androidx.media3.common.util.UnstableApi
-import kotlin.concurrent.Volatile
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlin.concurrent.Volatile
 
 /**
  * Creates a custom process-wide Android playback coordinator.
@@ -43,23 +44,30 @@ object AndroidPlaybackCoordinatorOwner {
      */
     fun configure(factory: AndroidPlaybackCoordinatorFactory) {
         synchronized(lock) {
-            check(playback == null) {
-                "AndroidPlaybackCoordinatorOwner is already initialized"
+
+            if (playback != null) {
+                println("AndroidPlaybackCoordinatorOwner is already initialized")
+                return
             }
-            check(configuredFactory == null) {
-                "AndroidPlaybackCoordinatorOwner is already configured"
+            if (configuredFactory != null) {
+                println("AndroidPlaybackCoordinatorOwner is already configured")
+                return
             }
             configuredFactory = factory
         }
     }
 
     /** Returns the single process-wide coordinator, creating and starting it if necessary. */
-    fun coordinator(context: Context): PlaybackCoordinator =
+    fun coordinator(
+        context: Context,
+        mpvConfig: MpvConfig = MpvConfig()
+    ): PlaybackCoordinator =
         acquire(
             context = context,
             mediaIntegrationFactory = ::AndroidMediaSessionIntegration,
             coordinatorFactory = { mediaIntegration ->
                 PlaybackCoordinator(
+                    mpvConfig = mpvConfig,
                     mediaIntegration = mediaIntegration,
                     stateStore = AndroidPlaybackStateStore(context)
                 )

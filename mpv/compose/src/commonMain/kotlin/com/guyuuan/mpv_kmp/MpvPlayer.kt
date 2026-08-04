@@ -5,6 +5,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.data.MpvAudioTrack
 import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
 import com.guyuuan.mpv_kmp.data.MpvEvent
@@ -110,11 +111,13 @@ internal class LocalMpvVideoOutput(
     val mpv: Mpv
 ) : MpvVideoOutput
 
+
 @Composable
 fun rememberMpvPlayer(
+    config: MpvConfig = MpvConfig(),
     scope: CoroutineScope = rememberCoroutineScope()
 ): MpvPlayer {
-    val mpv = remember { Mpv() }
+    val mpv = remember { Mpv(config) }
     val player = remember(mpv, scope) {
         LocalMpvPlayer(
             mpv = mpv,

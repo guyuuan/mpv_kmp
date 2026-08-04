@@ -1,5 +1,7 @@
 package com.guyuuan.mpv_kmp
 
+import com.guyuuan.mpv_kmp.config.FontConfig
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.data.MpvAudioDecoderInfo
 import com.guyuuan.mpv_kmp.data.MpvAudioTrack
 import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
@@ -30,8 +32,8 @@ interface Mpv {
         private val lock = PlatformLock()
 
         @OptIn(InternalCoroutinesApi::class)
-        operator fun invoke(): Mpv =
-            instance ?: lock.withLock { instance ?: createMpv().also { instance = it } }
+        operator fun invoke(config: MpvConfig = MpvConfig()): Mpv =
+            instance ?: lock.withLock { instance ?: createMpv(config).also { instance = it } }
 
         @OptIn(InternalCoroutinesApi::class)
         fun release() = lock.withLock {
@@ -75,6 +77,20 @@ interface Mpv {
 
     fun setSubtitle(id: Int?): Int = setProperty(MpvSubtitleProperties.SID, id?.toString() ?: "no")
     fun setSubtitle(subtitle: MpvSubtitleTrack): Int = setSubtitle(subtitle.id)
+    fun setFontConfig(config: FontConfig): Int {
+        val properties = listOf(
+            MpvSubtitleProperties.FONT_DIR to config.subFontsDir,
+            MpvSubtitleProperties.FONT to config.subFont,
+            MpvSubtitleProperties.FONT_SIZE to config.subFontSize.toString(),
+            MpvSubtitleProperties.MARGIN_Y to config.subMarginY.toString()
+        )
+        properties.forEach { (name, value) ->
+            val result = setProperty(name, value)
+            if (result < 0) return result
+        }
+        return 0
+    }
+
     fun getCurrentAudioTrack(): MpvAudioTrack? = getAudioTrackList().firstOrNull { it.selected }
     fun getAudioTrackList(): List<MpvAudioTrack> {
         val count =
@@ -183,7 +199,7 @@ abstract class AbsMpv(
     abstract fun startEventLoop()
 }
 
-internal expect fun createMpv(): Mpv
+internal expect fun createMpv(config: MpvConfig): Mpv
 
 fun mpvFileUri(path: String): String {
     return if (path.startsWith("file://")) path else "file://$path"

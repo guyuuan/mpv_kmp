@@ -1,5 +1,6 @@
 package com.guyuuan.mpv_kmp.pip
 
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.service.DEFAULT_MEDIA_COMMANDS
 import com.guyuuan.mpv_kmp.service.MediaCommandType
 import com.guyuuan.mpv_kmp.service.PlatformMediaIntegration
@@ -12,15 +13,19 @@ import com.guyuuan.mpv_kmp.service.PlaybackStateStore
  * coordinator.
  *
  * Install it with [configurePipPlayback] before a PiP player or platform media service is first
- * accessed. The configuration stores factories rather than loader instances so the coordinator
- * remains the sole owner of the created resources.
+ * accessed. The configuration stores [MpvConfig] and factories rather than loader instances so
+ * the coordinator remains the sole owner of libmpv and the created resources.
  */
 class PipPlaybackConfiguration private constructor(
+    internal val mpvConfig: MpvConfig,
     internal val artworkLoaderFactory: PlaybackArtworkLoaderFactory?,
     internal val availableCommands: Set<MediaCommandType>,
     internal val coordinatorFactory: PipPlaybackCoordinatorFactory?
 ) {
     class Builder {
+        /** Configuration applied before the process-wide libmpv instance is initialized. */
+        var mpvConfig: MpvConfig = MpvConfig()
+
         /** Creates the one artwork loader owned by the process-wide playback coordinator. */
         var artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null
 
@@ -30,13 +35,14 @@ class PipPlaybackConfiguration private constructor(
         /**
          * Optional advanced coordinator factory.
          *
-         * Most applications should only set [artworkLoaderFactory]. A custom factory should call
-         * [PipPlaybackCoordinatorEnvironment.createDefault] unless it needs to replace coordinator
-         * construction completely.
+         * Most applications should only set [mpvConfig] and [artworkLoaderFactory]. A custom
+         * factory should call [PipPlaybackCoordinatorEnvironment.createDefault] unless it needs to
+         * replace coordinator construction completely.
          */
         var coordinatorFactory: PipPlaybackCoordinatorFactory? = null
 
         fun build(): PipPlaybackConfiguration = PipPlaybackConfiguration(
+            mpvConfig = mpvConfig,
             artworkLoaderFactory = artworkLoaderFactory,
             availableCommands = availableCommands.toSet(),
             coordinatorFactory = coordinatorFactory
@@ -50,6 +56,7 @@ class PipPlaybackConfiguration private constructor(
         val environment = PipPlaybackCoordinatorEnvironment(
             mediaIntegration = mediaIntegration,
             defaultStateStore = defaultStateStore,
+            mpvConfig = mpvConfig,
             artworkLoaderFactory = artworkLoaderFactory,
             availableCommands = availableCommands
         )
@@ -57,7 +64,8 @@ class PipPlaybackConfiguration private constructor(
     }
 
     internal companion object {
-        fun default(): PipPlaybackConfiguration = Builder().build()
+        fun default(mpvConfig: MpvConfig = MpvConfig()): PipPlaybackConfiguration =
+            Builder().apply { this.mpvConfig = mpvConfig }.build()
     }
 }
 
@@ -76,6 +84,7 @@ fun interface PipPlaybackCoordinatorFactory {
 class PipPlaybackCoordinatorEnvironment internal constructor(
     val mediaIntegration: PlatformMediaIntegration,
     val defaultStateStore: PlaybackStateStore?,
+    val mpvConfig: MpvConfig,
     val artworkLoaderFactory: PlaybackArtworkLoaderFactory?,
     availableCommands: Set<MediaCommandType>
 ) {
@@ -83,6 +92,7 @@ class PipPlaybackCoordinatorEnvironment internal constructor(
 
     /** Creates the standard coordinator while preserving every configured extension. */
     fun createDefault(): PlaybackCoordinator = PlaybackCoordinator(
+        mpvConfig = mpvConfig,
         mediaIntegration = mediaIntegration,
         stateStore = defaultStateStore,
         availableCommands = availableCommands,

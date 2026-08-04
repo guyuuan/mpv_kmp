@@ -1,5 +1,7 @@
 package com.guyuuan.mpv_kmp
 
+import com.guyuuan.mpv_kmp.config.FontConfig
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.data.MpvAudioDecoderInfo
 import com.guyuuan.mpv_kmp.data.MpvAudioTrack
 import com.guyuuan.mpv_kmp.data.MpvDecoderInfo
@@ -244,6 +246,54 @@ class SharedCommonTest {
 
         assertEquals(0, player.setSubtitle(null))
         assertEquals("no", player.setProperties[MpvSubtitleProperties.SID])
+    }
+
+    @Test
+    fun setFontConfigUpdatesMpvSubtitleFontProperties() {
+        val player = FakeMpv(emptyMap())
+
+        assertEquals(
+            0,
+            player.setFontConfig(
+                FontConfig(
+                    subFontsDir = "/tmp/fonts",
+                    subFont = "Noto Sans CJK SC",
+                    subFontSize = 42.5f,
+                    subMarginY = 64
+                )
+            )
+        )
+        assertEquals("/tmp/fonts", player.setProperties[MpvSubtitleProperties.FONT_DIR])
+        assertEquals("Noto Sans CJK SC", player.setProperties[MpvSubtitleProperties.FONT])
+        assertEquals("42.5", player.setProperties[MpvSubtitleProperties.FONT_SIZE])
+        assertEquals("64", player.setProperties[MpvSubtitleProperties.MARGIN_Y])
+    }
+
+    @Test
+    fun mpvConfigMapsTypedFontConfigAndOtherOptions() {
+        val config = MpvConfig(
+            fontConfig = FontConfig(
+                subFontsDir = "/tmp/fonts",
+                subFont = "Noto Sans CJK SC",
+                subFontSize = 42.5f,
+                subMarginY = 64
+            ),
+            other = mapOf(
+                "hwdec" to "no",
+                MpvSubtitleProperties.FONT to "ignored-font"
+            )
+        )
+
+        assertEquals(
+            mapOf(
+                "hwdec" to "no",
+                MpvSubtitleProperties.FONT_DIR to "/tmp/fonts",
+                MpvSubtitleProperties.FONT to "Noto Sans CJK SC",
+                MpvSubtitleProperties.FONT_SIZE to "42.5",
+                MpvSubtitleProperties.MARGIN_Y to "64"
+            ),
+            config.toMap()
+        )
     }
 
     @Test

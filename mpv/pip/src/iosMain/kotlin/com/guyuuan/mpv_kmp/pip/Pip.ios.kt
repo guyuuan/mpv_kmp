@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import cnames.structs.opaqueCMSampleBuffer
 import com.guyuuan.mpv_kmp.IosMpvVideoOutput
 import com.guyuuan.mpv_kmp.IosRenderContextSupport
+import com.guyuuan.mpv_kmp.config.MpvConfig
 import com.guyuuan.mpv_kmp.service.IosNowPlayingMediaIntegration
 import com.guyuuan.mpv_kmp.service.IosPlaybackStateStore
 import com.guyuuan.mpv_kmp.service.MediaCommand
@@ -62,8 +63,8 @@ import kotlin.math.roundToInt
  * libmpv instance, while each Compose screen only owns its AVKit video-output connection.
  */
 @Composable
-actual fun rememberPipMpvPlayer(): PipMpvPlayer {
-    val coordinator = remember { IosPipPlaybackOwner.coordinator }
+actual fun rememberPipMpvPlayer(config: MpvConfig): PipMpvPlayer {
+    val coordinator = remember(config) { IosPipPlaybackOwner.coordinator(config) }
     val videoOutput = remember(coordinator) {
         IosSampleBufferPictureInPictureOutput(coordinator)
     }
@@ -98,9 +99,9 @@ private object IosPipPlaybackOwner {
     private var configuration: PipPlaybackConfiguration? = null
     private var coordinatorInstance: PlaybackCoordinator? = null
 
-    val coordinator: PlaybackCoordinator
-        get() = lock.withLock {
-            coordinatorInstance ?: (configuration ?: PipPlaybackConfiguration.default())
+    fun coordinator(mpvConfig: MpvConfig): PlaybackCoordinator =
+        lock.withLock {
+            coordinatorInstance ?: (configuration ?: PipPlaybackConfiguration.default(mpvConfig))
                 .createCoordinator(
                     mediaIntegration = IosNowPlayingMediaIntegration(),
                     defaultStateStore = IosPlaybackStateStore()
