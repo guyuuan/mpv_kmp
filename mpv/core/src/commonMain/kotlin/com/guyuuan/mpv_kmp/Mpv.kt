@@ -14,6 +14,7 @@ import com.guyuuan.mpv_kmp.props.MpvDecoderProperties
 import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
 import com.guyuuan.mpv_kmp.props.MpvSubtitleProperties
 import com.guyuuan.mpv_kmp.util.PlatformLock
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlin.concurrent.Volatile
@@ -187,7 +188,7 @@ abstract class AbsMpv(
         config.forEach { (name, value) ->
             val result = setConfigOption(name, value)
             if (result < 0) {
-                println("AbsMpv: failed to set config $name=$value: $result")
+                Logger.e(tag = "AbsMpv") { "failed to set config $name=$value: $result" }
                 return false
             }
         }

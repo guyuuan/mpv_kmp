@@ -13,6 +13,7 @@ import com.jogamp.opengl.GLCapabilities
 import com.jogamp.opengl.GLEventListener
 import com.jogamp.opengl.GLProfile
 import com.jogamp.opengl.awt.GLCanvas
+import co.touchlab.kermit.Logger
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 
@@ -62,7 +63,7 @@ internal fun MpvHardwareRenderView(
 
 private fun createMpvGlCanvas(state: Mpv): GLCanvas {
     val profile = selectMpvGlProfile()
-    println("MpvComposeView: using JOGL profile ${profile.name}")
+    Logger.d(tag = "MpvComposeView") { "using JOGL profile ${profile.name}" }
     val capabilities = GLCapabilities(profile).apply {
         doubleBuffered = true
         hardwareAccelerated = true

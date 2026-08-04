@@ -18,6 +18,7 @@ import com.guyuuan.mpv_kmp.service.MediaCommand
 import com.guyuuan.mpv_kmp.service.PlaybackCoordinator
 import com.guyuuan.mpv_kmp.service.PlaybackSnapshot
 import com.guyuuan.mpv_kmp.util.PlatformLock
+import co.touchlab.kermit.Logger
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.readValue
@@ -341,10 +342,9 @@ private class IosSampleBufferPictureInPictureOutput(
 
         if (!loggedFirstFrame) {
             loggedFirstFrame = true
-            println(
-                "IosPictureInPicture: rendered first sample buffer " +
-                    "${targetSize.first}x${targetSize.second}"
-            )
+            Logger.d(tag = "IosPictureInPicture") {
+                "rendered first sample buffer ${targetSize.first}x${targetSize.second}"
+            }
         }
     }
 
@@ -472,10 +472,9 @@ private class IosPictureInPictureDelegate(
         failedToStartPictureInPictureWithError: NSError
     ) {
         state.value = PictureInPictureState.Inactive
-        println(
-            "IosPictureInPicture: failed to start: " +
-                failedToStartPictureInPictureWithError.localizedDescription
-        )
+        Logger.e(tag = "IosPictureInPicture") {
+            "failed to start: ${failedToStartPictureInPictureWithError.localizedDescription}"
+        }
     }
 
     override fun pictureInPictureController(

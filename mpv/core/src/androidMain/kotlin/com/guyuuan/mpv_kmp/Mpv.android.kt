@@ -5,6 +5,7 @@ import com.guyuuan.mpv_kmp.data.MpvEvent
 import com.guyuuan.mpv_kmp.data.MpvPlaylistItem
 import com.guyuuan.mpv_kmp.props.MpvAudioProperties
 import com.guyuuan.mpv_kmp.props.MpvPlaybackProperties
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -75,7 +76,7 @@ private class AndroidMpv(
         // format 1 = MPV_FORMAT_STRING
         val result = MpvNative.mpvObserveProperty(name, observerId, 1)
         if (result < 0) {
-            println("AndroidMpv: observeProperty failed: $result, name=$name")
+            Logger.e(tag = "AndroidMpv") { "observeProperty failed: $result, name=$name" }
             if (observedProperties[name] == observerId) {
                 observedProperties.remove(name)
             }
@@ -87,7 +88,9 @@ private class AndroidMpv(
         val observerId = observedProperties[name] ?: return
         val result = MpvNative.mpvUnobserveProperty(observerId)
         if (result < 0) {
-            println("AndroidMpv: removePropertyObservation failed: $result, name=$name")
+            Logger.e(tag = "AndroidMpv") {
+                "removePropertyObservation failed: $result, name=$name"
+            }
             return
         }
         observedProperties.remove(name)

@@ -129,6 +129,7 @@ kotlin {
         commonMain.dependencies {
             api(projects.mpv.core)
             api(libs.kotlinx.coroutines.core)
+            implementation(libs.kermit)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

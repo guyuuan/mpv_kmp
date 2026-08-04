@@ -42,6 +42,7 @@ kotlin {
             implementation(libs.compose.material.iconsExtended)
             implementation(projects.mpv.pip)
             api(projects.mpv.loaderCoil)
+            implementation(libs.kermit)
             implementation(libs.kotlinx.coroutines.core)
         }
     }

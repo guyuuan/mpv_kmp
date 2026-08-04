@@ -22,6 +22,7 @@ import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.Structure
 import com.sun.jna.ptr.PointerByReference
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -109,13 +110,13 @@ internal class JvmMpv(
                     ctx = null
                     false
                 } else {
-                    println("JvmMpv: desktop hwdec=${config["hwdec"]}")
+                    Logger.d(tag = "JvmMpv") { "desktop hwdec=${config["hwdec"]}" }
                     nativeTrace("init.$rid.before.mpv_initialize")
                     val r = MpvNative.lib.mpv_initialize(c)
                     nativeTrace("init.$rid.after.mpv_initialize.ret=$r")
                     if (r != 0) {
                         val err = MpvNative.lib.mpv_error_string(r) ?: "unknown"
-                        println("JvmMpv: mpv_initialize failed: $r ($err)")
+                        Logger.e(tag = "JvmMpv") { "mpv_initialize failed: $r ($err)" }
                         MpvNative.lib.mpv_terminate_destroy(c)
                         ctx = null
                         false
@@ -143,7 +144,7 @@ internal class JvmMpv(
             nativeTrace("init.$rid.end.ok=${ok.get()}")
             ok.get()
         } catch (e: Throwable) {
-            println("JvmMpv: initialize on EDT failed: $e")
+            Logger.e(throwable = e, tag = "JvmMpv") { "initialize on EDT failed" }
             return false
         }
     }
@@ -155,7 +156,9 @@ internal class JvmMpv(
         nativeTrace("init.after.set_option.$name.ret=$ret")
         if (ret < 0) {
             val err = MpvNative.lib.mpv_error_string(ret) ?: "unknown"
-            println("JvmMpv: failed to set option $name=$value: $ret ($err)")
+            Logger.e(tag = "JvmMpv") {
+                "failed to set option $name=$value: $ret ($err)"
+            }
         }
         return ret
     }
@@ -182,7 +185,7 @@ internal class JvmMpv(
         val ret = MpvNative.lib.mpv_command_string(c, cmd)
         if (ret < 0) {
             val err = MpvNative.lib.mpv_error_string(ret) ?: "unknown"
-            println("JvmMpv: commandString failed: $ret ($err), cmd=$cmd")
+            Logger.e(tag = "JvmMpv") { "commandString failed: $ret ($err), cmd=$cmd" }
         }
         return ret
     }
@@ -221,7 +224,7 @@ internal class JvmMpv(
         val ret = MpvNative.lib.mpv_observe_property(c, observerId, name, 1)
         if (ret < 0) {
             val err = MpvNative.lib.mpv_error_string(ret) ?: "unknown"
-            println("JvmMpv: observeProperty failed: $ret ($err), name=$name")
+            Logger.e(tag = "JvmMpv") { "observeProperty failed: $ret ($err), name=$name" }
             if (observedProperties[name] == observerId) {
                 observedProperties.remove(name)
             }
@@ -236,7 +239,9 @@ internal class JvmMpv(
         val ret = MpvNative.lib.mpv_unobserve_property(c, observerId)
         if (ret < 0) {
             val err = MpvNative.lib.mpv_error_string(ret) ?: "unknown"
-            println("JvmMpv: removePropertyObservation failed: $ret ($err), name=$name")
+            Logger.e(tag = "JvmMpv") {
+                "removePropertyObservation failed: $ret ($err), name=$name"
+            }
             return
         }
         observedProperties.remove(name)
@@ -284,7 +289,9 @@ internal class JvmMpv(
         val ret = MpvNative.lib.mpv_command(c, argv)
         if (ret < 0) {
             val err = MpvNative.lib.mpv_error_string(ret) ?: "unknown"
-            println("JvmMpv: command failed: $ret ($err), args=${args.joinToString(" ")}")
+            Logger.e(tag = "JvmMpv") {
+                "command failed: $ret ($err), args=${args.joinToString(" ")}"
+            }
         }
         return ret
     }
@@ -329,7 +336,9 @@ internal class JvmMpv(
         renderCtx?.let {
             MpvNative.lib.mpv_render_context_set_update_callback(it, null, null)
             if (renderMode == RenderMode.Hardware) {
-                println("JvmMpv: OpenGL render context still active during terminate; freeing on selected thread.")
+                Logger.w(tag = "JvmMpv") {
+                    "OpenGL render context still active during terminate; freeing on selected thread"
+                }
             }
             MpvNative.lib.mpv_render_context_free(it)
             renderCtx = null
@@ -377,7 +386,7 @@ internal class JvmMpv(
         if (type == MpvEventType.LogMessage && event.data != null) {
             val lm = Structure.newInstance(mpv_event_log_message::class.java, event.data)
             lm.read()
-            println("mpv[${lm.level}] ${lm.prefix}: ${lm.text}")
+            Logger.d(tag = "mpv.${lm.prefix}") { "[${lm.level}] ${lm.text}" }
         }
 
         if (type == MpvEventType.PropertyChange && event.data != null) {
@@ -442,21 +451,23 @@ internal class JvmMpv(
         arr[1].write()
 
         val out = PointerByReference()
-        println("JvmMpv: Calling mpv_render_context_create with sw...")
+        Logger.d(tag = "JvmMpv") { "calling mpv_render_context_create with software API" }
         val r = MpvNative.lib.mpv_render_context_create(out, c, arr[0].pointer)
         if (r == 0) {
             renderCtx = out.value
-            println("JvmMpv: mpv_render_context_create success. ctx => $renderCtx")
+            Logger.d(tag = "JvmMpv") { "software render context created: $renderCtx" }
             return true
         }
         val err = MpvNative.lib.mpv_error_string(r) ?: "unknown"
         val vo = getProperty("vo")
-        println("JvmMpv: mpv_render_context_create failed: $r ($err), vo=$vo")
+        Logger.e(tag = "JvmMpv") {
+            "software render context creation failed: $r ($err), vo=$vo"
+        }
         return false
     }
 
     override fun freeRenderContext() {
-        println("JvmMpv: Freeing RenderContext.")
+        Logger.d(tag = "JvmMpv") { "freeing software render context" }
         if (renderMode != RenderMode.Software) return
         renderCtx?.let {
             MpvNative.lib.mpv_render_context_set_update_callback(it, null, null)
@@ -509,11 +520,11 @@ internal class JvmMpv(
         arr[4].write()
 
         // Debug params
-        // println("JvmMpv: renderSw: $width x $height, stride=$stride, format=$format, buf=$buffer")
+        // Logger.v(tag = "JvmMpv") { "renderSw: $width x $height, stride=$stride, format=$format, buf=$buffer" }
 
         val err = MpvNative.lib.mpv_render_context_render(ctx, arr[0].pointer)
         if (err != 0) {
-            println("JvmMpv: mpv_render_context_render failed: $err")
+            Logger.e(tag = "JvmMpv") { "software render failed: $err" }
             return
         }
 
@@ -524,7 +535,9 @@ internal class JvmMpv(
         val c = ctx ?: return false
         if (renderCtx != null) return renderMode == RenderMode.Hardware
         if (GLContext.getCurrent() == null) {
-            println("JvmMpv: OpenGL render context create requested without a selected JOGL context.")
+            Logger.e(tag = "JvmMpv") {
+                "OpenGL render context creation requested without a selected JOGL context"
+            }
             return false
         }
         clearCurrentOpenGlErrors("before createHardwareRenderContext")
@@ -564,17 +577,19 @@ internal class JvmMpv(
         arr[2].write()
 
         val out = PointerByReference()
-        println("JvmMpv: Calling mpv_render_context_create with opengl...")
+        Logger.d(tag = "JvmMpv") { "calling mpv_render_context_create with OpenGL API" }
         val r = MpvNative.lib.mpv_render_context_create(out, c, arr[0].pointer)
         if (r == 0) {
             clearCurrentOpenGlErrors("after createHardwareRenderContext")
             renderCtx = out.value
-            println("JvmMpv: OpenGL render context created successfully. ctx => $renderCtx")
+            Logger.d(tag = "JvmMpv") { "OpenGL render context created: $renderCtx" }
             return true
         }
         val err = MpvNative.lib.mpv_error_string(r) ?: "unknown"
         val vo = getProperty("vo")
-        println("JvmMpv: OpenGL mpv_render_context_create failed: $r ($err), vo=$vo")
+        Logger.e(tag = "JvmMpv") {
+            "OpenGL render context creation failed: $r ($err), vo=$vo"
+        }
         getProcAddrCallback = null
         initParams = null
         return false
@@ -586,7 +601,9 @@ internal class JvmMpv(
         if (width <= 0 || height <= 0) return
         val current = GLContext.getCurrent()
         if (current == null) {
-            println("JvmMpv: OpenGL render requested without a selected JOGL context.")
+            Logger.e(tag = "JvmMpv") {
+                "OpenGL render requested without a selected JOGL context"
+            }
             return
         }
 
@@ -619,7 +636,7 @@ internal class JvmMpv(
 
         val err = MpvNative.lib.mpv_render_context_render(ctx, arr[0].pointer)
         if (err != 0) {
-            println("JvmMpv: OpenGL mpv_render_context_render failed: $err")
+            Logger.e(tag = "JvmMpv") { "OpenGL render failed: $err" }
             return
         }
         clearCurrentOpenGlErrors("after render")
@@ -630,10 +647,12 @@ internal class JvmMpv(
         if (renderMode != RenderMode.Hardware) return
         val ctx = renderCtx ?: return
         if (GLContext.getCurrent() == null) {
-            println("JvmMpv: OpenGL render context free requested without a selected JOGL context.")
+            Logger.e(tag = "JvmMpv") {
+                "OpenGL render context free requested without a selected JOGL context"
+            }
             return
         }
-        println("JvmMpv: Freeing OpenGL RenderContext.")
+        Logger.d(tag = "JvmMpv") { "freeing OpenGL render context" }
         MpvNative.lib.mpv_render_context_set_update_callback(ctx, null, null)
         MpvNative.lib.mpv_render_context_free(ctx)
         renderCtx = null
@@ -657,13 +676,13 @@ internal class JvmMpv(
         val gl = GLContext.getCurrent()?.gl ?: return
         var error = gl.glGetError()
         while (error != GL.GL_NO_ERROR) {
-            println(
-                "JvmMpv: cleared OpenGL error before mpv handoff at $stage: 0x${
+            Logger.w(tag = "JvmMpv") {
+                "cleared OpenGL error before mpv handoff at $stage: 0x${
                     error.toString(
                         16
                     )
                 }"
-            )
+            }
             error = gl.glGetError()
         }
     }

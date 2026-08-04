@@ -23,6 +23,7 @@ import com.guyuuan.mpv_kmp.pip.rememberPipMpvPlayer
 import com.guyuuan.mpv_kmp.service.PlaybackArtwork
 import com.guyuuan.mpv_kmp.service.PlaybackMediaType
 import com.guyuuan.mpv_kmp.service.PlaybackMetadata
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -39,7 +40,7 @@ fun App(overlay: @Composable BoxScope.() -> Unit = {}) {
 //            "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275"
 
         fun playVideo() {
-            println("start load video: $videoUrl")
+            Logger.i(tag = "Example") { "start load video: $videoUrl" }
             player.load(PlaybackMetadata(
                 mediaId = videoUrl,
                 uri = videoUrl,
