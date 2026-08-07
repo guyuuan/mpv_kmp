@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    id("com.guyuuan.kmp.mpv")
+    alias(libs.plugins.mpv)
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
@@ -40,8 +40,8 @@ kotlin {
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.material.iconsExtended)
-            implementation(projects.mpv.pip)
-            api(projects.mpv.loaderCoil)
+            api(libs.mpv.pip)
+            api(libs.mpv.coil)
             implementation(libs.kermit)
             implementation(libs.kotlinx.coroutines.core)
         }

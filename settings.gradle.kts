@@ -2,9 +2,18 @@ rootProject.name = "mpv_kmp"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
-    includeBuild("mpv-gradle-plugin")
+//    includeBuild("mpv-gradle-plugin")
 
     repositories {
+        maven {
+            name = "Central Portal Snapshots"
+            setUrl ( "https://central.sonatype.com/repository/maven-snapshots/")
+
+            // Only search this repository for the specific dependency
+            content {
+                includeGroupAndSubgroups( "com.guyuuan")
+            }
+        }
         google {
             mavenContent {
                 includeGroupAndSubgroups("androidx")
@@ -19,6 +28,15 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        maven {
+            name = "Central Portal Snapshots"
+            setUrl ( "https://central.sonatype.com/repository/maven-snapshots/")
+
+            // Only search this repository for the specific dependency
+            content {
+                includeGroupAndSubgroups( "com.guyuuan")
+            }
+        }
         google {
             mavenContent {
                 includeGroupAndSubgroups("androidx")

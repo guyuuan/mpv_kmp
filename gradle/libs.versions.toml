@@ -27,7 +27,7 @@ kotlinStdlib = "2.4.0"
 ktor = "3.5.1"
 runner = "1.5.2"
 core = "1.5.0"
-
+kmp_mpv= "0.1.0-SNAPSHOT"
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlin-testJunit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
@@ -70,7 +70,10 @@ dbus-java-transport-native-unixsocket = { module = "com.github.hypfvieh:dbus-jav
 kotlin-stdlib = { group = "org.jetbrains.kotlin", name = "kotlin-stdlib", version.ref = "kotlinStdlib" }
 androidx-runner = { group = "androidx.test", name = "runner", version.ref = "runner" }
 androidx-core = { group = "androidx.test", name = "core", version.ref = "core" }
-
+mpv-core = {group="com.guyuuan.kmp.mpv",name="core",version.ref="kmp_mpv"}
+mpv-compose = {group="com.guyuuan.kmp.mpv",name="compose",version.ref="kmp_mpv"}
+mpv-pip = {group="com.guyuuan.kmp.mpv",name="pip",version.ref="kmp_mpv"}
+mpv-coil = {group="com.guyuuan.kmp.mpv",name="loader-coil",version.ref="kmp_mpv"}
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
 androidLibrary = { id = "com.android.library", version.ref = "agp" }
@@ -82,3 +85,4 @@ kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 androidLint = { id = "com.android.lint", version.ref = "agp" }
 mavenPublish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }
+mpv = {id="com.guyuuan.kmp.mpv",version.ref="kmp_mpv"}
