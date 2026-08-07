@@ -13,6 +13,7 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform) apply false
     alias(libs.plugins.androidLint) apply false
     alias(libs.plugins.mavenPublish) apply false
+    alias(libs.plugins.mpv) apply false
 }
 
 subprojects {
