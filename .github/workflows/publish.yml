@@ -1,0 +1,86 @@
+name: Publish Maven packages
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish ${{ github.ref_type == 'tag' && github.ref_name || 'dev-SNAPSHOT' }}
+    runs-on: macos-latest
+    env:
+      ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.ORG_GRADLE_PROJECT_mavenCentralUsername }}
+      ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.ORG_GRADLE_PROJECT_mavenCentralPassword }}
+      ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.ORG_GRADLE_PROJECT_signingInMemoryKey }}
+      ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.ORG_GRADLE_PROJECT_signingInMemoryKeyPassword }}
+      ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYID: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platforms;android-37" \
+            "build-tools;37.0.0" \
+            "ndk;29.0.14206865"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Resolve publication version
+        id: publication
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+              echo "::error::Tag '$GITHUB_REF_NAME' must be a version such as v1.0.0, 1.0.0, or v1.0.0-rc.1."
+              exit 1
+            fi
+            task="publishAndReleaseToMavenCentral"
+          else
+            version="dev-SNAPSHOT"
+            task="publishToMavenCentral"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "task=$task" >> "$GITHUB_OUTPUT"
+          echo "Publishing version $version with $task"
+
+      - name: Verify publishing secrets
+        shell: bash
+        run: |
+          missing=()
+          [[ -n "$ORG_GRADLE_PROJECT_mavenCentralUsername" ]] || missing+=(MAVEN_CENTRAL_USERNAME)
+          [[ -n "$ORG_GRADLE_PROJECT_mavenCentralPassword" ]] || missing+=(MAVEN_CENTRAL_PASSWORD)
+          [[ -n "$ORG_GRADLE_PROJECT_signingInMemoryKey" ]] || missing+=(SIGNING_IN_MEMORY_KEY)
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing repository secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Publish Gradle plugin
+        run: >-
+          ./gradlew -p mpv-gradle-plugin
+          ${{ steps.publication.outputs.task }}
+          -PVERSION_NAME=${{ steps.publication.outputs.version }}
+          --no-configuration-cache
+
+      - name: Publish libraries
+        run: >-
+          ./gradlew
+          ${{ steps.publication.outputs.task }}
+          -PVERSION_NAME=${{ steps.publication.outputs.version }}
+          --no-configuration-cache
