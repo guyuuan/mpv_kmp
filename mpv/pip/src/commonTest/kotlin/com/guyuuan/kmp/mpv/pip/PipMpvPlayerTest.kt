@@ -1,5 +1,6 @@
 package com.guyuuan.kmp.mpv.pip
 
+import com.guyuuan.kmp.mpv.AbsMpv
 import com.guyuuan.kmp.mpv.MpvPlayer
 import com.guyuuan.kmp.mpv.MpvPlayerCapability
 import com.guyuuan.kmp.mpv.MpvPlaylistController
@@ -7,16 +8,22 @@ import com.guyuuan.kmp.mpv.MpvPlayerSnapshot
 import com.guyuuan.kmp.mpv.MpvPlayerState
 import com.guyuuan.kmp.mpv.MpvVideoOutput
 import com.guyuuan.kmp.mpv.data.MpvDecoderInfo
+import com.guyuuan.kmp.mpv.data.MpvPlaylistItem
 import com.guyuuan.kmp.mpv.service.PlaybackArtwork
+import com.guyuuan.kmp.mpv.service.PlaybackCoordinator
 import com.guyuuan.kmp.mpv.service.PlaybackMediaType
 import com.guyuuan.kmp.mpv.service.PlaybackMetadata
 import com.guyuuan.kmp.mpv.service.PlaybackSnapshot
 import com.guyuuan.kmp.mpv.service.PlaybackStatus
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -144,7 +151,9 @@ class PipMpvPlayerTest {
             positionMillis = 12_500,
             durationMillis = 90_000,
             volume = 42f,
-            speed = 1.5f
+            speed = 1.5f,
+            queueIndex = 1,
+            queueSize = 3
         )
 
         assertEquals(
@@ -153,10 +162,43 @@ class PipMpvPlayerTest {
                 positionSeconds = 12.5,
                 durationSeconds = 90.0,
                 volume = 42f,
-                speed = 1.5f
+                speed = 1.5f,
+                canPrevious = true,
+                canNext = true
             ),
             snapshot.toMpvPlayerSnapshot()
         )
+    }
+
+    @Test
+    fun navigationUsesCoordinatorSnapshotBeforeMirroredSnapshotCollects() {
+        val mpv = FakeMpv()
+        val coordinator = PlaybackCoordinator(mpv = mpv)
+        assertTrue(coordinator.start())
+        val player = PlaybackCoordinatorMpvPlayer(
+            coordinator = coordinator,
+            videoOutput = object : MpvVideoOutput {},
+            scope = CoroutineScope(Job() + QueuedDispatcher())
+        )
+
+        assertEquals(
+            0,
+            player.addToPlayList(
+                listOf(
+                    PlaybackMetadata("first", "file:///first", "First"),
+                    PlaybackMetadata("second", "file:///second", "Second")
+                ),
+                currentIndex = 0,
+                playWhenReady = false
+            )
+        )
+        assertFalse(player.snapshot.value.canNext)
+        assertTrue(player.canNext())
+        assertTrue(player.next())
+        assertEquals(1, mpv.playlistNextCount)
+
+        player.close()
+        coordinator.close()
     }
 
     private object FakePlayer : MpvPlayer {
@@ -230,6 +272,46 @@ class PipMpvPlayerTest {
             queuePlayWhenReady = playWhenReady
             return RESULT_CODE
         }
+    }
+
+    private class QueuedDispatcher : CoroutineDispatcher() {
+        private val tasks = mutableListOf<Runnable>()
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            tasks += block
+        }
+    }
+
+    private class FakeMpv : AbsMpv() {
+        var playlistNextCount = 0
+
+        override fun initialize(): Boolean = true
+        override fun attach(view: Any) = Unit
+        override fun detach() = Unit
+        override fun commandString(cmd: String): Int = 0
+        override fun load(uri: String): Int = 0
+        override fun addToPlaylist(uri: String, position: Int?): Int = 0
+        override fun addExternalSubtitle(uri: String): Int = 0
+        override fun getPlaylist(): List<MpvPlaylistItem> = emptyList()
+        override fun removeFromPlaylist(index: Int): Int = 0
+        override fun playlistNext(): Int {
+            playlistNextCount += 1
+            return 0
+        }
+        override fun playlistPrev(): Int = 0
+        override fun playlistClear(): Int = 0
+        override fun seekTo(position: Double): Int = 0
+        override fun setCoroutineScope(scope: CoroutineScope) = Unit
+        override fun observeProperty(name: String) = Unit
+        override fun removePropertyObservation(name: String) = Unit
+        override fun play(): Int = 0
+        override fun pause(): Int = 0
+        override fun stop(): Int = 0
+        override fun setVolume(volume: Double): Int = 0
+        override fun setProperty(name: String, value: String): Int = 0
+        override fun getProperty(name: String): String? = null
+        override fun terminate() = Unit
+        override fun startEventLoop() = Unit
     }
 
     private class FakePictureInPictureController(

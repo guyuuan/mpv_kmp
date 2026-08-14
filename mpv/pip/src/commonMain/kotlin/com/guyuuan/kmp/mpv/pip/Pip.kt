@@ -12,6 +12,7 @@ import com.guyuuan.kmp.mpv.data.MpvAudioTrack
 import com.guyuuan.kmp.mpv.data.MpvDecoderInfo
 import com.guyuuan.kmp.mpv.data.MpvSubtitleTrack
 import com.guyuuan.kmp.mpv.service.MediaCommand
+import com.guyuuan.kmp.mpv.service.MediaCommandType
 import com.guyuuan.kmp.mpv.service.PlaybackCoordinator
 import com.guyuuan.kmp.mpv.service.PlaybackMediaType
 import com.guyuuan.kmp.mpv.service.PlaybackMetadata
@@ -193,6 +194,14 @@ internal class PlaybackCoordinatorMpvPlayer(
     override fun play(): Int = coordinator.execute(MediaCommand.Play)
     override fun pause(): Int = coordinator.execute(MediaCommand.Pause)
     override fun stop(): Int = coordinator.execute(MediaCommand.Stop)
+    override fun canPrevious(): Boolean = coordinator.snapshot.value.canGoPrevious
+
+    override fun canNext(): Boolean = coordinator.snapshot.value.canGoNext
+
+    override fun previous(): Boolean =
+        canPrevious() && coordinator.execute(MediaCommand.Previous) >= 0
+
+    override fun next(): Boolean = canNext() && coordinator.execute(MediaCommand.Next) >= 0
 
     override fun seek(positionSeconds: Double): Int = coordinator.execute(
         MediaCommand.SeekTo(
@@ -227,7 +236,11 @@ internal class PlaybackCoordinatorMpvPlayer(
         if (closed) return
         closed = true
         scope.cancel()
-        mutableSnapshot.value = mutableSnapshot.value.copy(state = MpvPlayerState.Disposed)
+        mutableSnapshot.value = mutableSnapshot.value.copy(
+            state = MpvPlayerState.Disposed,
+            canPrevious = false,
+            canNext = false
+        )
     }
 }
 
@@ -245,8 +258,20 @@ internal fun PlaybackSnapshot.toMpvPlayerSnapshot(): MpvPlayerSnapshot = MpvPlay
     positionSeconds = positionMillis / MILLIS_PER_SECOND,
     durationSeconds = durationMillis / MILLIS_PER_SECOND,
     volume = volume,
-    speed = speed
+    speed = speed,
+    canPrevious = canGoPrevious,
+    canNext = canGoNext
 )
+
+private val PlaybackSnapshot.canGoPrevious: Boolean
+    get() = queueIndex?.let { index ->
+        MediaCommandType.Previous in availableCommands && index > 0
+    } ?: false
+
+private val PlaybackSnapshot.canGoNext: Boolean
+    get() = queueIndex?.let { index ->
+        MediaCommandType.Next in availableCommands && index < queueSize - 1
+    } ?: false
 
 @Composable
 expect fun rememberPipMpvPlayer(config: MpvConfig = MpvConfig()): PipMpvPlayer

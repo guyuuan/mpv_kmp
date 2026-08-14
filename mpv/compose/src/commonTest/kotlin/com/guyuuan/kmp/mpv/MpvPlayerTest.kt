@@ -228,6 +228,57 @@ class MpvPlayerTest {
     }
 
     @Test
+    fun localPlayerReturnsPlaylistNavigationResult() = runBlocking {
+        val mpv = FakeMpv(
+            properties = emptyMap(),
+            playlistNextResult = 0,
+            playlistPrevResult = -1
+        )
+        val playerScope = CoroutineScope(Job())
+        val player = LocalMpvPlayer(mpv, playerScope)
+        player.setup()
+        mpv.emitPlaylistState(position = 1, size = 3)
+        eventually { player.snapshot.value.canPrevious && player.snapshot.value.canNext }
+
+        assertEquals(true, player.next())
+        assertEquals(false, player.previous())
+
+        player.close()
+        playerScope.cancel()
+    }
+
+    @Test
+    fun localPlayerReportsAvailablePlaylistNavigationInSnapshot() = runBlocking {
+        val mpv = FakeMpv(emptyMap())
+        val playerScope = CoroutineScope(Job())
+        val player = LocalMpvPlayer(mpv, playerScope)
+        player.setup()
+
+        mpv.emitPlaylistState(position = 1, size = 3)
+        eventually { player.snapshot.value.canPrevious && player.snapshot.value.canNext }
+        assertEquals(true, player.canPrevious())
+        assertEquals(true, player.canNext())
+
+        mpv.emitPlaylistState(position = 0, size = 3)
+        eventually { !player.snapshot.value.canPrevious && player.snapshot.value.canNext }
+        assertEquals(false, player.canPrevious())
+        assertEquals(true, player.canNext())
+
+        mpv.emitPlaylistState(position = 2, size = 3)
+        eventually { player.snapshot.value.canPrevious && !player.snapshot.value.canNext }
+        assertEquals(true, player.canPrevious())
+        assertEquals(false, player.canNext())
+
+        mpv.emitPlaylistState(position = null, size = 0)
+        eventually { !player.snapshot.value.canPrevious && !player.snapshot.value.canNext }
+        assertEquals(false, player.canPrevious())
+        assertEquals(false, player.canNext())
+
+        player.close()
+        playerScope.cancel()
+    }
+
+    @Test
     fun decoderInfoFlowObservesAndRemovesDecoderPropertiesWithCollectors() = runBlocking {
         val player = FakeMpv(emptyMap())
         val playerScope = CoroutineScope(Job())
@@ -295,7 +346,9 @@ class MpvPlayerTest {
     }
 
     private class FakeMpv(
-        private val properties: Map<String, String?>
+        private val properties: Map<String, String?>,
+        private val playlistNextResult: Int = 0,
+        private val playlistPrevResult: Int = 0
     ) : AbsMpv() {
         val observedProperties = mutableListOf<String>()
         val removedProperties = mutableListOf<String>()
@@ -307,6 +360,23 @@ class MpvPlayerTest {
 
         fun emitEvent(event: MpvEvent) {
             listeners.toList().forEach { it(event) }
+        }
+
+        fun emitPlaylistState(position: Int?, size: Int) {
+            emitEvent(
+                MpvEvent(
+                    type = MpvEventType.PropertyChange,
+                    name = "playlist/count",
+                    value = size.toString()
+                )
+            )
+            emitEvent(
+                MpvEvent(
+                    type = MpvEventType.PropertyChange,
+                    name = "playlist-pos",
+                    value = position?.toString()
+                )
+            )
         }
 
         override fun initialize(): Boolean = true
@@ -324,8 +394,8 @@ class MpvPlayerTest {
         override fun addExternalSubtitle(uri: String): Int = 0
         override fun getPlaylist(): List<MpvPlaylistItem> = emptyList()
         override fun removeFromPlaylist(index: Int): Int = 0
-        override fun playlistNext(): Int = 0
-        override fun playlistPrev(): Int = 0
+        override fun playlistNext(): Int = playlistNextResult
+        override fun playlistPrev(): Int = playlistPrevResult
         override fun playlistClear(): Int {
             playlistClearCount++
             return 0

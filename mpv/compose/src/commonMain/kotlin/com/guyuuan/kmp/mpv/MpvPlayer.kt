@@ -55,7 +55,9 @@ data class MpvPlayerSnapshot(
     val positionSeconds: Double = 0.0,
     val durationSeconds: Double = 0.0,
     val volume: Float = 0f,
-    val speed: Float = 1f
+    val speed: Float = 1f,
+    val canPrevious: Boolean = false,
+    val canNext: Boolean = false
 ) {
     val isPaused: Boolean
         get() = state == MpvPlayerState.Paused
@@ -87,6 +89,12 @@ interface MpvPlayer {
     fun play(): Int
     fun pause(): Int
     fun stop(): Int
+    /** Returns whether [previous] can switch to another playlist item. */
+    fun canPrevious(): Boolean = snapshot.value.canPrevious
+    /** Returns whether [next] can switch to another playlist item. */
+    fun canNext(): Boolean = snapshot.value.canNext
+    fun previous(): Boolean = false
+    fun next(): Boolean = false
     fun seek(positionSeconds: Double): Int
     fun setVolume(volume: Double): Int
     fun setSpeed(speed: Float): Int
@@ -194,6 +202,8 @@ class LocalMpvPlayer(
     private var pauseProperty = false
     private var stopRequested = false
     private var pendingQueueLoad: PendingQueueLoad? = null
+    private var playlistPosition: Int? = null
+    private var playlistSize = 0
     private val eventChannel = Channel<MpvEvent>(Channel.UNLIMITED)
     private var eventJob: Job? = null
     private var started = false
@@ -223,7 +233,15 @@ class LocalMpvPlayer(
         mpv.addEventListener(eventListener)
         mpv.observeProperty(MpvAudioProperties.VOLUME)
         MpvPlaybackProperties.ALL.forEach(mpv::observeProperty)
-        publish(snapshot.value.copy(state = MpvPlayerState.Idle))
+        PLAYLIST_PROPERTIES.forEach(mpv::observeProperty)
+        playlistPosition = mpv.getProperty(PLAYLIST_POSITION).toPlaylistIndex()
+        playlistSize = mpv.getProperty(PLAYLIST_COUNT)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        publish(
+            snapshot.value.copy(state = MpvPlayerState.Idle).withPlaylistNavigation(
+                playlistPosition,
+                playlistSize
+            )
+        )
         return true
     }
 
@@ -271,6 +289,16 @@ class LocalMpvPlayer(
                     MpvAudioProperties.VOLUME -> next.copy(
                         volume = event.value?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
                     )
+
+                    PLAYLIST_POSITION -> {
+                        playlistPosition = event.value.toPlaylistIndex()
+                        next.withPlaylistNavigation(playlistPosition, playlistSize)
+                    }
+
+                    PLAYLIST_COUNT -> {
+                        playlistSize = event.value?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                        next.withPlaylistNavigation(playlistPosition, playlistSize)
+                    }
 
                     else -> next
                 }
@@ -358,7 +386,13 @@ class LocalMpvPlayer(
                 hasActiveFile = false
                 stopRequested = false
                 pendingQueueLoad = null
-                next = next.copy(state = MpvPlayerState.Disposed)
+                playlistPosition = null
+                playlistSize = 0
+                next = next.copy(
+                    state = MpvPlayerState.Disposed,
+                    canPrevious = false,
+                    canNext = false
+                )
             }
 
             else -> Unit
@@ -371,13 +405,17 @@ class LocalMpvPlayer(
         pendingQueueLoad = null
         val result = mpv.load(uri)
         if (result >= 0) {
+            playlistPosition = 0
+            playlistSize = 1
             hasActiveFile = false
             stopRequested = false
             publish(
                 snapshot.value.copy(
                     state = MpvPlayerState.Loading,
                     positionSeconds = 0.0,
-                    durationSeconds = 0.0
+                    durationSeconds = 0.0,
+                    canPrevious = false,
+                    canNext = false
                 )
             )
         } else {
@@ -409,6 +447,8 @@ class LocalMpvPlayer(
             result = mpv.addToPlaylist(uris[index])
         }
         if (result >= 0) {
+            playlistPosition = currentIndex
+            playlistSize = uris.size
             hasActiveFile = false
             stopRequested = false
             publish(
@@ -416,7 +456,7 @@ class LocalMpvPlayer(
                     state = MpvPlayerState.Loading,
                     positionSeconds = 0.0,
                     durationSeconds = 0.0
-                )
+                ).withPlaylistNavigation(playlistPosition, playlistSize)
             )
         } else {
             pendingQueueLoad = null
@@ -471,6 +511,10 @@ class LocalMpvPlayer(
         }
         return result
     }
+
+    override fun previous(): Boolean = canPrevious() && mpv.playlistPrev() >= 0
+
+    override fun next(): Boolean = canNext() && mpv.playlistNext() >= 0
 
     override fun seek(positionSeconds: Double): Int {
         ensureUsable()
@@ -527,11 +571,18 @@ class LocalMpvPlayer(
             mpv.removeEventListener(eventListener)
             mpv.removePropertyObservation(MpvAudioProperties.VOLUME)
             MpvPlaybackProperties.ALL.forEach(mpv::removePropertyObservation)
+            PLAYLIST_PROPERTIES.forEach(mpv::removePropertyObservation)
         }
         eventChannel.close()
         eventJob?.cancel()
         eventJob = null
-        publish(snapshot.value.copy(state = MpvPlayerState.Disposed))
+        publish(
+            snapshot.value.copy(
+                state = MpvPlayerState.Disposed,
+                canPrevious = false,
+                canNext = false
+            )
+        )
         releaseMpv()
     }
 
@@ -563,3 +614,20 @@ class LocalMpvPlayer(
 internal const val UNSUPPORTED_MPV_COMMAND: Int = -1
 
 private fun String?.toMpvBoolean(): Boolean = this == "yes" || this == "true"
+
+private fun String?.toPlaylistIndex(): Int? = this?.toDoubleOrNull()?.toInt()
+
+private fun MpvPlayerSnapshot.withPlaylistNavigation(
+    position: Int?,
+    size: Int
+): MpvPlayerSnapshot {
+    val validPosition = position?.takeIf { it in 0 until size }
+    return copy(
+        canPrevious = validPosition != null && validPosition > 0,
+        canNext = validPosition != null && validPosition < size - 1
+    )
+}
+
+private const val PLAYLIST_POSITION = "playlist-pos"
+private const val PLAYLIST_COUNT = "playlist/count"
+private val PLAYLIST_PROPERTIES = listOf(PLAYLIST_POSITION, PLAYLIST_COUNT)
