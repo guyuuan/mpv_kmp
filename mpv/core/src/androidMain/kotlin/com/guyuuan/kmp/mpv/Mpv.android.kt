@@ -54,7 +54,10 @@ private class AndroidMpv(
     }
     override fun commandString(cmd: String): Int = MpvNative.mpvCommandString(cmd)
     override fun load(uri: String): Int = commandString("loadfile \"$uri\"")
-    override fun addToPlaylist(uri: String): Int = commandString("loadfile \"$uri\" append")
+    override fun addToPlaylist(uri: String, position: Int?): Int {
+        val action = position?.let { "insert-at $it" } ?: "append"
+        return commandString("loadfile \"$uri\" $action")
+    }
     override fun addExternalSubtitle(uri: String): Int =
         commandString("sub-add ${mpvCommandArgument(uri)} select")
 

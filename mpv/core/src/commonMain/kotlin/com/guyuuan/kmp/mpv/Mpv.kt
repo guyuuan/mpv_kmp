@@ -52,7 +52,14 @@ interface Mpv {
     fun commandString(cmd: String): Int
     fun load(uri: String): Int
     fun loadFile(path: String): Int = load(mpvFileUri(path))
-    fun addToPlaylist(uri: String): Int
+    fun addToPlaylist(uri: String, position: Int? = null): Int
+    fun addToPlaylist(vararg uri: String): Int {
+        uri.forEach {item->
+            val result = addToPlaylist(item)
+            if (result < 0) return result
+        }
+        return 0
+    }
     fun getPlaylist(): List<MpvPlaylistItem>
     fun getCurrentSubtitle(): MpvSubtitleTrack? = getSubtitleList().firstOrNull { it.selected }
     fun getSubtitleList(): List<MpvSubtitleTrack> {

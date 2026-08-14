@@ -72,9 +72,12 @@ class PlaybackCoordinatorTest {
         assertEquals(0, fixture.coordinator.load(metadata))
         assertEquals(metadata.uri, fixture.mpv.loadedUri)
         assertEquals(metadata, fixture.integration.metadata.last())
+        assertEquals(1, fixture.mpv.pauseCount)
+        assertEquals(0, fixture.mpv.playCount)
 
         fixture.mpv.emit(MpvEvent(type = MpvEventType.StartFile))
         fixture.mpv.emit(MpvEvent(type = MpvEventType.FileLoaded))
+        assertEquals(1, fixture.mpv.playCount)
         fixture.mpv.emit(
             MpvEvent(
                 type = MpvEventType.PropertyChange,
@@ -123,6 +126,100 @@ class PlaybackCoordinatorTest {
     }
 
     @Test
+    fun pauseDuringQueueLoadingOverridesAutoPlay() {
+        val fixture = Fixture()
+        fixture.coordinator.start()
+        val metadata = PlaybackMetadata("first", "file:///first.mp3", "First")
+
+        assertEquals(0, fixture.coordinator.setQueue(listOf(metadata), playWhenReady = true))
+        assertEquals(0, fixture.coordinator.execute(MediaCommand.Pause))
+
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.StartFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.FileLoaded))
+
+        assertEquals(0, fixture.mpv.playCount)
+        assertEquals(PlaybackStatus.Paused, fixture.coordinator.snapshot.value.status)
+        assertFalse(fixture.coordinator.snapshot.value.playWhenReady)
+        fixture.close()
+    }
+
+    @Test
+    fun playDuringPausedQueueLoadingOverridesInitialIntent() {
+        val fixture = Fixture()
+        fixture.coordinator.start()
+        val metadata = PlaybackMetadata("first", "file:///first.mp3", "First")
+
+        assertEquals(0, fixture.coordinator.setQueue(listOf(metadata), playWhenReady = false))
+        assertEquals(0, fixture.coordinator.execute(MediaCommand.Play))
+
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.StartFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.FileLoaded))
+
+        assertEquals(2, fixture.mpv.playCount)
+        assertEquals(PlaybackStatus.Playing, fixture.coordinator.snapshot.value.status)
+        assertTrue(fixture.coordinator.snapshot.value.playWhenReady)
+        fixture.close()
+    }
+
+    @Test
+    fun previousFileEndingDoesNotCancelPendingQueuePlayback() {
+        val fixture = Fixture()
+        fixture.coordinator.start()
+        val metadata = PlaybackMetadata("first", "file:///first.mp3", "First")
+
+        assertEquals(0, fixture.coordinator.setQueue(listOf(metadata), playWhenReady = true))
+
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.StartFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.EndFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.StartFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.FileLoaded))
+
+        assertEquals(1, fixture.mpv.playCount)
+        assertEquals(PlaybackStatus.Playing, fixture.coordinator.snapshot.value.status)
+        assertTrue(fixture.coordinator.snapshot.value.playWhenReady)
+        fixture.close()
+    }
+
+    @Test
+    fun replacingQueueKeepsLatestPendingPlaybackIntent() {
+        val fixture = Fixture()
+        fixture.coordinator.start()
+        val old = PlaybackMetadata("old", "file:///old.mp3", "Old")
+        val new = PlaybackMetadata("new", "file:///new.mp3", "New")
+
+        assertEquals(0, fixture.coordinator.setQueue(listOf(old), playWhenReady = false))
+        assertEquals(0, fixture.coordinator.setQueue(listOf(new), playWhenReady = true))
+
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.StartFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.EndFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.StartFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.FileLoaded))
+
+        assertEquals(new.uri, fixture.mpv.loadedUri)
+        assertEquals(1, fixture.mpv.playCount)
+        assertEquals(PlaybackStatus.Playing, fixture.coordinator.snapshot.value.status)
+        assertTrue(fixture.coordinator.snapshot.value.playWhenReady)
+        fixture.close()
+    }
+
+    @Test
+    fun failedQueueItemCarriesPlaybackIntentToNextItem() {
+        val fixture = Fixture()
+        fixture.coordinator.start()
+        val metadata = PlaybackMetadata("first", "file:///first.mp3", "First")
+
+        assertEquals(0, fixture.coordinator.setQueue(listOf(metadata), playWhenReady = true))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.StartFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.EndFile, error = -1))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.StartFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.FileLoaded))
+
+        assertEquals(1, fixture.mpv.playCount)
+        assertEquals(PlaybackStatus.Playing, fixture.coordinator.snapshot.value.status)
+        fixture.close()
+    }
+
+    @Test
     fun systemCommandsReturnToTheOwnedPlayer() {
         val fixture = Fixture()
         fixture.coordinator.start()
@@ -158,9 +255,10 @@ class PlaybackCoordinatorTest {
     fun restoresQueueAndPlaybackSettingsWithoutAutoPlaying() {
         val first = PlaybackMetadata("first", "file:///first.mp3", "First")
         val second = PlaybackMetadata("second", "file:///second.mp3", "Second")
+        val third = PlaybackMetadata("third", "file:///third.mp3", "Third")
         val store = InMemoryPlaybackStateStore(
             RestorablePlaybackState(
-                queue = listOf(first, second),
+                queue = listOf(first, second, third),
                 currentIndex = 1,
                 positionMillis = 45_000,
                 speed = 1.25f,
@@ -174,16 +272,19 @@ class PlaybackCoordinatorTest {
 
         assertTrue(fixture.coordinator.restoreSavedPlayback())
 
-        assertEquals(first.uri, fixture.mpv.loadedUri)
-        assertEquals(listOf(second.uri), fixture.mpv.addedUris)
-        assertEquals("1", fixture.mpv.properties["playlist-pos"])
+        assertEquals(second.uri, fixture.mpv.loadedUri)
+        assertEquals(
+            listOf(first.uri to 0, third.uri to null),
+            fixture.mpv.addedItems
+        )
+        assertEquals(listOf(first.uri, second.uri, third.uri), fixture.mpv.playlistUris)
         assertEquals(45.0, fixture.mpv.seekPosition)
         assertEquals("1.25", fixture.mpv.properties[MpvPlaybackProperties.SPEED])
         assertEquals("inf", fixture.mpv.properties["loop-playlist"])
         assertEquals(listOf("playlist-shuffle"), fixture.mpv.commands)
         assertEquals(second, fixture.coordinator.snapshot.value.metadata)
         assertEquals(1, fixture.coordinator.snapshot.value.queueIndex)
-        assertEquals(2, fixture.coordinator.snapshot.value.queueSize)
+        assertEquals(3, fixture.coordinator.snapshot.value.queueSize)
         assertEquals(0, fixture.mpv.playCount)
         assertTrue(fixture.mpv.pauseCount > 0)
         fixture.close()
@@ -442,7 +543,8 @@ class PlaybackCoordinatorTest {
         var volume: Double? = null
         val properties = mutableMapOf<String, String>()
         val commands = mutableListOf<String>()
-        val addedUris = mutableListOf<String>()
+        val addedItems = mutableListOf<Pair<String, Int?>>()
+        val playlistUris = mutableListOf<String>()
         val observedProperties = mutableListOf<String>()
         val removedProperties = mutableListOf<String>()
 
@@ -459,10 +561,17 @@ class PlaybackCoordinatorTest {
         }
         override fun load(uri: String): Int {
             loadedUri = uri
+            playlistUris.clear()
+            playlistUris += uri
             return 0
         }
-        override fun addToPlaylist(uri: String): Int {
-            addedUris += uri
+        override fun addToPlaylist(uri: String, position: Int?): Int {
+            addedItems += uri to position
+            if (position == null || position !in 0..playlistUris.size) {
+                playlistUris += uri
+            } else {
+                playlistUris.add(position, uri)
+            }
             return 0
         }
         override fun addExternalSubtitle(uri: String): Int = 0

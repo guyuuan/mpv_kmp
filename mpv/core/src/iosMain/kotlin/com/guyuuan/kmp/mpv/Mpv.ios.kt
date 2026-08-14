@@ -142,7 +142,10 @@ private class IosMpv(
         return commandString("loadfile \"$uri\"")
     }
 
-    override fun addToPlaylist(uri: String): Int = commandString("loadfile \"$uri\" append")
+    override fun addToPlaylist(uri: String, position: Int?): Int {
+        val action = position?.let { "insert-at $it" } ?: "append"
+        return commandString("loadfile \"$uri\" $action")
+    }
     override fun addExternalSubtitle(uri: String): Int =
         commandString("sub-add ${mpvCommandArgument(uri)} select")
 

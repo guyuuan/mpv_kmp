@@ -3,6 +3,7 @@ package com.guyuuan.kmp.mpv.pip
 import androidx.compose.runtime.Composable
 import com.guyuuan.kmp.mpv.MpvPlayer
 import com.guyuuan.kmp.mpv.MpvPlayerCapability
+import com.guyuuan.kmp.mpv.MpvPlaylistController
 import com.guyuuan.kmp.mpv.MpvPlayerSnapshot
 import com.guyuuan.kmp.mpv.MpvPlayerState
 import com.guyuuan.kmp.mpv.MpvVideoOutput
@@ -36,6 +37,7 @@ enum class PictureInPictureAvailability {
 enum class PictureInPictureState {
     Inactive,
     Active,
+
     /** The platform has started preparing or animating the transition into PiP. */
     Entering
 }
@@ -89,6 +91,26 @@ class PipMpvPlayer internal constructor(
         (delegate as? PlaybackMetadataController)?.load(metadata)
             ?: delegate.load(metadata.uri)
 
+    fun addToPlayList(
+        metadata: List<PlaybackMetadata>,
+        currentIndex: Int = 0,
+        playWhenReady: Boolean = true
+    ): Int? = when (val player = delegate) {
+        is PlaybackMetadataController -> player.addToPlayList(
+            metadata,
+            currentIndex,
+            playWhenReady
+        )
+
+        is MpvPlaylistController -> player.setQueue(
+            metadata.map(PlaybackMetadata::uri),
+            currentIndex,
+            playWhenReady
+        )
+
+        else -> null
+    }
+
     /** Replaces metadata for the currently playing item without reloading its media URI. */
     fun updateMetadata(metadata: PlaybackMetadata?) {
         (delegate as? PlaybackMetadataController)?.updateMetadata(metadata)
@@ -104,6 +126,11 @@ class PipMpvPlayer internal constructor(
 internal interface PlaybackMetadataController {
     fun load(metadata: PlaybackMetadata): Int
     fun updateMetadata(metadata: PlaybackMetadata?)
+    fun addToPlayList(
+        metadata: List<PlaybackMetadata>,
+        currentIndex: Int,
+        playWhenReady: Boolean
+    ): Int
 }
 
 /**
@@ -152,6 +179,12 @@ internal class PlaybackCoordinatorMpvPlayer(
     }
 
     override fun load(metadata: PlaybackMetadata): Int = coordinator.load(metadata)
+
+    override fun addToPlayList(
+        metadata: List<PlaybackMetadata>,
+        currentIndex: Int,
+        playWhenReady: Boolean
+    ) = coordinator.setQueue(metadata, currentIndex, playWhenReady)
 
     override fun updateMetadata(metadata: PlaybackMetadata?) {
         coordinator.updateMetadata(metadata)

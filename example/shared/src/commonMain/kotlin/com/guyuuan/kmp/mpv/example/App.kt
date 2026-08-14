@@ -40,16 +40,43 @@ fun App(overlay: @Composable BoxScope.() -> Unit = {}) {
 //            "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275"
 
         fun playVideo() {
-            Logger.i(tag = "Example") { "start load video: $videoUrl" }
-            player.load(PlaybackMetadata(
+            Logger.i(tag = "Example") { "start load video" }
+//            player.load(PlaybackMetadata(
+//                mediaId = videoUrl,
+//                uri = videoUrl,
+//                title = "我的阿勒泰",
+//                artist = "artist",
+//                albumTitle = "album",
+//                artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
+//                mediaType = PlaybackMediaType.Video
+//            ))
+            player.addToPlayList(listOf(PlaybackMetadata(
                 mediaId = videoUrl,
                 uri = videoUrl,
                 title = "我的阿勒泰",
-                artist = "artist",
+                artist = "S01E05",
                 albumTitle = "album",
                 artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
                 mediaType = PlaybackMediaType.Video
-            ))
+            ),
+                PlaybackMetadata(
+                    mediaId = "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275",
+                    uri = "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275",
+                    title = "得闲谨制",
+                    artist = "artist",
+                    albumTitle = "album",
+                    artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
+                    mediaType = PlaybackMediaType.Video
+                ),
+                PlaybackMetadata(
+                    mediaId = "https://emby.guyuuan.com:23231/emby/Items/40777/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_40777",
+                    uri = "https://emby.guyuuan.com:23231/emby/Items/40777/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_40777",
+                    title = "蜘蛛侠",
+                    artist = "artist",
+                    albumTitle = "album",
+                    artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
+                    mediaType = PlaybackMediaType.Video
+                )),1)
         }
 
         MpvComposeView(

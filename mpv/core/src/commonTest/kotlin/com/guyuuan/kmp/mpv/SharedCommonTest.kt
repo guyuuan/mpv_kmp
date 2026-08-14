@@ -25,6 +25,25 @@ class SharedCommonTest {
     }
 
     @Test
+    fun addMultipleUrisToPlaylistInOrder() {
+        val player = FakeMpv(emptyMap())
+
+        assertEquals(0, player.addToPlaylist("first", "second", "third"))
+        assertEquals(listOf("first", "second", "third"), player.playlistUris)
+    }
+
+    @Test
+    fun addingMultipleUrisStopsAtFirstError() {
+        val player = FakeMpv(
+            properties = emptyMap(),
+            playlistResults = mapOf("second" to -1)
+        )
+
+        assertEquals(-1, player.addToPlaylist("first", "second", "third"))
+        assertEquals(listOf("first", "second"), player.playlistUris)
+    }
+
+    @Test
     fun decoderPropertyConstantsExposeMpvNames() {
         assertEquals(
             listOf(
@@ -372,12 +391,14 @@ class SharedCommonTest {
 
     private class FakeMpv(
         private val properties: Map<String, String?>,
-        config: Map<String, String> = emptyMap()
+        config: Map<String, String> = emptyMap(),
+        private val playlistResults: Map<String, Int> = emptyMap()
     ) : AbsMpv(config) {
         val setProperties = mutableMapOf<String, String>()
         val commands = mutableListOf<String>()
         val configOptions = mutableListOf<Pair<String, String>>()
         val externalSubtitleUris = mutableListOf<String>()
+        val playlistUris = mutableListOf<String>()
 
         override fun initialize(): Boolean = loadConfig()
         override fun setConfigOption(name: String, value: String): Int {
@@ -391,7 +412,10 @@ class SharedCommonTest {
             return 0
         }
         override fun load(uri: String): Int = 0
-        override fun addToPlaylist(uri: String): Int = 0
+        override fun addToPlaylist(uri: String, position: Int?): Int {
+            playlistUris += uri
+            return playlistResults[uri] ?: 0
+        }
         override fun addExternalSubtitle(uri: String): Int {
             externalSubtitleUris += uri
             return 0

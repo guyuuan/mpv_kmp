@@ -194,8 +194,12 @@ internal class JvmMpv(
         return command("loadfile", uri)
     }
 
-    override fun addToPlaylist(uri: String): Int {
-        return command("loadfile", uri, "append")
+    override fun addToPlaylist(uri: String, position: Int?): Int {
+        return if (position == null) {
+            command("loadfile", uri, "append")
+        } else {
+            command("loadfile", uri, "insert-at", position.toString())
+        }
     }
 
     override fun addExternalSubtitle(uri: String): Int {

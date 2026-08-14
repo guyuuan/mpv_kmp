@@ -2,6 +2,7 @@ package com.guyuuan.kmp.mpv.pip
 
 import com.guyuuan.kmp.mpv.MpvPlayer
 import com.guyuuan.kmp.mpv.MpvPlayerCapability
+import com.guyuuan.kmp.mpv.MpvPlaylistController
 import com.guyuuan.kmp.mpv.MpvPlayerSnapshot
 import com.guyuuan.kmp.mpv.MpvPlayerState
 import com.guyuuan.kmp.mpv.MpvVideoOutput
@@ -109,8 +110,31 @@ class PipMpvPlayerTest {
         assertEquals(RESULT_CODE, player.load(metadata))
         assertSame(metadata, delegate.loadedMetadata)
 
+        assertEquals(RESULT_CODE, player.addToPlayList(listOf(metadata), 0, false))
+        assertEquals(listOf(metadata), delegate.queuedMetadata)
+        assertEquals(0, delegate.queueIndex)
+        assertFalse(delegate.queuePlayWhenReady)
+
         player.updateMetadata(updated)
         assertSame(updated, delegate.updatedMetadata)
+    }
+
+    @Test
+    fun forwardsUriQueueToLocalPlaylistController() {
+        val controller = FakePictureInPictureController(
+            PictureInPictureAvailability.UnsupportedPlatform
+        )
+        val delegate = FakePlaylistPlayer()
+        val player = PipMpvPlayer(delegate, controller)
+        val metadata = listOf(
+            PlaybackMetadata("first", "file:///first.mp4", "First"),
+            PlaybackMetadata("second", "file:///second.mp4", "Second")
+        )
+
+        assertEquals(RESULT_CODE, player.addToPlayList(metadata, 1, false))
+        assertEquals(metadata.map(PlaybackMetadata::uri), delegate.queuedUris)
+        assertEquals(1, delegate.queueIndex)
+        assertFalse(delegate.queuePlayWhenReady)
     }
 
     @Test
@@ -158,14 +182,53 @@ class PipMpvPlayerTest {
             private set
         var updatedMetadata: PlaybackMetadata? = null
             private set
+        var queuedMetadata: List<PlaybackMetadata>? = null
+            private set
+        var queueIndex: Int? = null
+            private set
+        var queuePlayWhenReady = true
+            private set
 
         override fun load(metadata: PlaybackMetadata): Int {
             loadedMetadata = metadata
             return RESULT_CODE
         }
 
+        override fun addToPlayList(
+            metadata: List<PlaybackMetadata>,
+            currentIndex: Int,
+            playWhenReady: Boolean
+        ): Int {
+            queuedMetadata = metadata
+            queueIndex = currentIndex
+            queuePlayWhenReady = playWhenReady
+            return RESULT_CODE
+        }
+
         override fun updateMetadata(metadata: PlaybackMetadata?) {
             updatedMetadata = metadata
+        }
+    }
+
+    private class FakePlaylistPlayer :
+        MpvPlayer by FakePlayer,
+        MpvPlaylistController {
+        var queuedUris: List<String>? = null
+            private set
+        var queueIndex: Int? = null
+            private set
+        var queuePlayWhenReady = true
+            private set
+
+        override fun setQueue(
+            uris: List<String>,
+            currentIndex: Int,
+            playWhenReady: Boolean
+        ): Int {
+            queuedUris = uris
+            queueIndex = currentIndex
+            queuePlayWhenReady = playWhenReady
+            return RESULT_CODE
         }
     }
 

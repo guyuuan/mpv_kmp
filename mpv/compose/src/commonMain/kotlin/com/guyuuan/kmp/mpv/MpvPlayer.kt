@@ -15,6 +15,8 @@ import com.guyuuan.kmp.mpv.props.MpvDecoderProperties
 import com.guyuuan.kmp.mpv.props.MpvPlaybackProperties
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,6 +106,15 @@ interface MpvPlayer {
         if (snapshot.value.isPaused) play() else pause()
 }
 
+/** Optional queue control implemented by players that own a mutable libmpv playlist. */
+interface MpvPlaylistController {
+    fun setQueue(
+        uris: List<String>,
+        currentIndex: Int = 0,
+        playWhenReady: Boolean = true
+    ): Int
+}
+
 /**
  * Direct libmpv output used by the local player. Platform renderers keep this internal so remote
  * player implementations never expose an application-owned libmpv instance to UI code.
@@ -142,7 +153,17 @@ class LocalMpvPlayer(
     val mpv: Mpv,
     private val scope: CoroutineScope,
     private val releaseMpv: () -> Unit = mpv::terminate
-) : MpvPlayer {
+) : MpvPlayer, MpvPlaylistController {
+    private enum class PendingQueueLoadPhase {
+        AwaitingStart,
+        Loading
+    }
+
+    private data class PendingQueueLoad(
+        var playWhenReady: Boolean,
+        var phase: PendingQueueLoadPhase = PendingQueueLoadPhase.AwaitingStart
+    )
+
     private val mutableSnapshot = MutableStateFlow(MpvPlayerSnapshot())
     override val snapshot: StateFlow<MpvPlayerSnapshot> = mutableSnapshot.asStateFlow()
 
@@ -172,13 +193,14 @@ class LocalMpvPlayer(
     private var hasActiveFile = false
     private var pauseProperty = false
     private var stopRequested = false
+    private var pendingQueueLoad: PendingQueueLoad? = null
+    private val eventChannel = Channel<MpvEvent>(Channel.UNLIMITED)
+    private var eventJob: Job? = null
     private var started = false
     private var closed = false
 
     private val eventListener: (MpvEvent) -> Unit = { event ->
-        scope.launch {
-            handleEvent(event)
-        }
+        eventChannel.trySend(event)
     }
 
     fun setup(): Boolean {
@@ -193,6 +215,11 @@ class LocalMpvPlayer(
         }
 
         mpv.setCoroutineScope(scope)
+        eventJob = scope.launch {
+            for (event in eventChannel) {
+                handleEvent(event)
+            }
+        }
         mpv.addEventListener(eventListener)
         mpv.observeProperty(MpvAudioProperties.VOLUME)
         MpvPlaybackProperties.ALL.forEach(mpv::observeProperty)
@@ -205,6 +232,7 @@ class LocalMpvPlayer(
         if (event.error < 0) {
             hasActiveFile = false
             stopRequested = false
+            resetPendingQueueLoadIfLoading()
             publish(snapshot.value.copy(state = MpvPlayerState.Error))
             return
         }
@@ -261,6 +289,7 @@ class LocalMpvPlayer(
             MpvEventType.StartFile -> {
                 hasActiveFile = false
                 stopRequested = false
+                pendingQueueLoad?.phase = PendingQueueLoadPhase.Loading
                 next = next.copy(
                     state = MpvPlayerState.Loading,
                     positionSeconds = 0.0,
@@ -268,7 +297,36 @@ class LocalMpvPlayer(
                 )
             }
 
-            MpvEventType.FileLoaded,
+            MpvEventType.FileLoaded -> {
+                hasActiveFile = true
+                val pendingLoad = pendingQueueLoad?.takeIf {
+                    it.phase == PendingQueueLoadPhase.Loading
+                }
+                if (pendingLoad != null) {
+                    pendingQueueLoad = null
+                    if (pendingLoad.playWhenReady) {
+                        val playResult = mpv.play()
+                        if (playResult < 0) {
+                            next = next.copy(state = MpvPlayerState.Error)
+                        } else {
+                            pauseProperty = false
+                            next = next.copy(state = MpvPlayerState.Playing)
+                        }
+                    } else {
+                        pauseProperty = true
+                        next = next.copy(state = MpvPlayerState.Paused)
+                    }
+                } else {
+                    next = next.copy(
+                        state = if (pauseProperty) {
+                            MpvPlayerState.Paused
+                        } else {
+                            MpvPlayerState.Playing
+                        }
+                    )
+                }
+            }
+
             MpvEventType.PlaybackRestart -> {
                 hasActiveFile = true
                 next = next.copy(
@@ -282,6 +340,7 @@ class LocalMpvPlayer(
 
             MpvEventType.EndFile -> {
                 hasActiveFile = false
+                resetPendingQueueLoadIfLoading()
                 next = next.copy(
                     state = if (stopRequested) MpvPlayerState.Stopped else MpvPlayerState.Ended
                 )
@@ -289,6 +348,7 @@ class LocalMpvPlayer(
             }
 
             MpvEventType.Idle -> {
+                resetPendingQueueLoadIfLoading()
                 if (!hasActiveFile && next.state == MpvPlayerState.Loading) {
                     next = next.copy(state = MpvPlayerState.Idle)
                 }
@@ -297,6 +357,7 @@ class LocalMpvPlayer(
             MpvEventType.Shutdown -> {
                 hasActiveFile = false
                 stopRequested = false
+                pendingQueueLoad = null
                 next = next.copy(state = MpvPlayerState.Disposed)
             }
 
@@ -307,6 +368,7 @@ class LocalMpvPlayer(
 
     override fun load(uri: String): Int {
         ensureUsable()
+        pendingQueueLoad = null
         val result = mpv.load(uri)
         if (result >= 0) {
             hasActiveFile = false
@@ -324,13 +386,54 @@ class LocalMpvPlayer(
         return result
     }
 
+    override fun setQueue(
+        uris: List<String>,
+        currentIndex: Int,
+        playWhenReady: Boolean
+    ): Int {
+        ensureUsable()
+        require(uris.isNotEmpty()) { "Playback queue must not be empty" }
+        require(currentIndex in uris.indices) { "Current index must point to a queue item" }
+
+        pendingQueueLoad = PendingQueueLoad(playWhenReady)
+        var result = mpv.pause()
+        if (result >= 0) pauseProperty = true
+        if (result >= 0) result = mpv.playlistClear()
+        if (result >= 0) result = mpv.load(uris[currentIndex])
+        for (index in 0 until currentIndex) {
+            if (result < 0) break
+            result = mpv.addToPlaylist(uris[index], index)
+        }
+        for (index in currentIndex + 1 until uris.size) {
+            if (result < 0) break
+            result = mpv.addToPlaylist(uris[index])
+        }
+        if (result >= 0) {
+            hasActiveFile = false
+            stopRequested = false
+            publish(
+                snapshot.value.copy(
+                    state = MpvPlayerState.Loading,
+                    positionSeconds = 0.0,
+                    durationSeconds = 0.0
+                )
+            )
+        } else {
+            pendingQueueLoad = null
+            publish(snapshot.value.copy(state = MpvPlayerState.Error))
+        }
+        return result
+    }
+
     override fun play(): Int {
         ensureUsable()
+        pendingQueueLoad?.playWhenReady = true
         val result = mpv.play()
         if (result >= 0) {
             pauseProperty = false
             if (hasActiveFile) publish(snapshot.value.copy(state = MpvPlayerState.Playing))
         } else {
+            pendingQueueLoad = null
             publish(snapshot.value.copy(state = MpvPlayerState.Error))
         }
         return result
@@ -338,11 +441,13 @@ class LocalMpvPlayer(
 
     override fun pause(): Int {
         ensureUsable()
+        pendingQueueLoad?.playWhenReady = false
         val result = mpv.pause()
         if (result >= 0) {
             pauseProperty = true
             if (hasActiveFile) publish(snapshot.value.copy(state = MpvPlayerState.Paused))
         } else {
+            pendingQueueLoad = null
             publish(snapshot.value.copy(state = MpvPlayerState.Error))
         }
         return result
@@ -350,6 +455,7 @@ class LocalMpvPlayer(
 
     override fun stop(): Int {
         ensureUsable()
+        pendingQueueLoad = null
         val result = mpv.stop()
         if (result >= 0) {
             hasActiveFile = false
@@ -416,11 +522,15 @@ class LocalMpvPlayer(
         closed = true
         hasActiveFile = false
         stopRequested = false
+        pendingQueueLoad = null
         if (started) {
             mpv.removeEventListener(eventListener)
             mpv.removePropertyObservation(MpvAudioProperties.VOLUME)
             MpvPlaybackProperties.ALL.forEach(mpv::removePropertyObservation)
         }
+        eventChannel.close()
+        eventJob?.cancel()
+        eventJob = null
         publish(snapshot.value.copy(state = MpvPlayerState.Disposed))
         releaseMpv()
     }
@@ -437,6 +547,12 @@ class LocalMpvPlayer(
 
     private fun publishErrorIfNeeded(result: Int) {
         if (result < 0) publish(snapshot.value.copy(state = MpvPlayerState.Error))
+    }
+
+    private fun resetPendingQueueLoadIfLoading() {
+        pendingQueueLoad?.takeIf {
+            it.phase == PendingQueueLoadPhase.Loading
+        }?.phase = PendingQueueLoadPhase.AwaitingStart
     }
 
     private fun publish(value: MpvPlayerSnapshot) {

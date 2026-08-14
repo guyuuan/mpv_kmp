@@ -40,8 +40,14 @@ kotlin {
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.material.iconsExtended)
-            api(libs.mpv.pip)
-            api(libs.mpv.coil)
+            val devMode = properties["devMode"]
+            if(devMode == "dev"){
+                api(libs.mpv.pip)
+                api(libs.mpv.coil)
+            }else{
+                api(projects.mpv.pip)
+                api(projects.mpv.loaderCoil)
+            }
             implementation(libs.kermit)
             implementation(libs.kotlinx.coroutines.core)
         }

@@ -1,11 +1,13 @@
 package com.guyuuan.kmp.mpv.service
 
+import co.touchlab.kermit.Logger
 import com.guyuuan.kmp.mpv.Mpv
 import com.guyuuan.kmp.mpv.MpvEventType
 import com.guyuuan.kmp.mpv.config.MpvConfig
 import com.guyuuan.kmp.mpv.data.MpvEvent
 import com.guyuuan.kmp.mpv.props.MpvAudioProperties
 import com.guyuuan.kmp.mpv.props.MpvPlaybackProperties
+import com.guyuuan.kmp.mpv.util.PlatformLock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -33,6 +35,16 @@ class PlaybackCoordinator(
     artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null,
     private val mpvConfig: MpvConfig = MpvConfig()
 ) : MediaCommandHandler {
+    private enum class PendingQueueLoadPhase {
+        AwaitingStart,
+        Loading
+    }
+
+    private data class PendingQueueLoad(
+        var playWhenReady: Boolean,
+        var phase: PendingQueueLoadPhase = PendingQueueLoadPhase.AwaitingStart
+    )
+
     private val ownsSharedMpv: Boolean = mpv == null
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val artworkLoader: PlaybackArtworkLoader? = artworkLoaderFactory?.create()
@@ -53,6 +65,8 @@ class PlaybackCoordinator(
     private var hasActiveFile = false
     private var pauseProperty = false
     private var stopRequested = false
+    private val pendingQueueLock = PlatformLock()
+    private var pendingQueueLoad: PendingQueueLoad? = null
     private var queue: List<PlaybackMetadata> = emptyList()
     private var persistenceJob: Job? = null
     private var restoring = false
@@ -97,20 +111,21 @@ class PlaybackCoordinator(
         require(currentIndex in items.indices) { "Current index must point to a queue item" }
 
         queue = items.toList()
-        var result = if (playWhenReady) 0 else player.pause()
+        pendingQueueLock.withLock {
+            pendingQueueLoad = PendingQueueLoad(playWhenReady)
+        }
+        var result = player.pause()
+        if (result >= 0) pauseProperty = true
         result = result.firstErrorOr(player.playlistClear())
-        result = result.firstErrorOr(player.load(items.first().uri))
-        items.drop(1).forEach { item ->
-            result = result.firstErrorOr(player.addToPlaylist(item.uri))
+        result = result.firstErrorOr(player.load(items[currentIndex].uri))
+        items.take(currentIndex).forEachIndexed { index, item ->
+            result = result.firstErrorOr(player.addToPlaylist(item.uri, index))
         }
-        if (currentIndex != 0) {
-            result =
-                result.firstErrorOr(player.setProperty(PLAYLIST_POSITION, currentIndex.toString()))
-        }
-        if (playWhenReady) {
-            result = result.firstErrorOr(player.play())
-        }
-
+        result = result.firstErrorOr(
+            player.addToPlaylist(
+                *items.drop(currentIndex + 1).map { it.uri }.toTypedArray()
+            )
+        )
         val metadata = items[currentIndex]
         publishSnapshot(
             snapshot.value.copy(
@@ -122,6 +137,7 @@ class PlaybackCoordinator(
         )
         publishMetadata(metadata)
         if (result < 0) {
+            clearPendingQueueLoad()
             publishSnapshot(snapshot.value.copy(status = PlaybackStatus.Error))
         }
         return result
@@ -161,14 +177,31 @@ class PlaybackCoordinator(
         ensureUsable()
         if (command.type !in snapshot.value.availableCommands) return 0
 
+        val requestedPlayWhenReady = when (command) {
+            MediaCommand.Play -> true
+            MediaCommand.Pause, MediaCommand.Stop -> false
+            MediaCommand.TogglePlayPause -> !snapshot.value.playWhenReady
+            else -> null
+        }
+
         val result = when (command) {
-            MediaCommand.Play -> player.play()
-            MediaCommand.Pause -> player.pause()
+            MediaCommand.Play -> {
+                updatePendingQueuePlayWhenReady(true)
+                player.play()
+            }
+
+            MediaCommand.Pause -> {
+                updatePendingQueuePlayWhenReady(false)
+                player.pause()
+            }
+
             MediaCommand.TogglePlayPause -> {
-                if (snapshot.value.playWhenReady) player.pause() else player.play()
+                updatePendingQueuePlayWhenReady(requestedPlayWhenReady == true)
+                if (requestedPlayWhenReady == true) player.play() else player.pause()
             }
 
             MediaCommand.Stop -> {
+                clearPendingQueueLoad()
                 stopRequested = true
                 player.stop()
             }
@@ -189,19 +222,20 @@ class PlaybackCoordinator(
         }
 
         if (result >= 0) {
-            val playWhenReady = when (command) {
-                MediaCommand.Play -> true
-                MediaCommand.Pause, MediaCommand.Stop -> false
-
-                MediaCommand.TogglePlayPause -> !snapshot.value.playWhenReady
-                else -> null
-            }
-            if (playWhenReady != null) {
-                publishSnapshot(snapshot.value.copy(playWhenReady = playWhenReady))
+            if (requestedPlayWhenReady != null) {
+                publishSnapshot(
+                    snapshot.value.copy(playWhenReady = requestedPlayWhenReady)
+                )
             }
         }
 
         if (result < 0) {
+            if (command == MediaCommand.Play ||
+                command == MediaCommand.Pause ||
+                command == MediaCommand.TogglePlayPause
+            ) {
+                clearPendingQueueLoad()
+            }
             if (command == MediaCommand.Stop) stopRequested = false
             publishSnapshot(snapshot.value.copy(status = PlaybackStatus.Error))
         }
@@ -276,6 +310,7 @@ class PlaybackCoordinator(
         }
         hasActiveFile = false
         stopRequested = false
+        clearPendingQueueLoad()
         val disposed = snapshot.value.copy(
             metadata = null,
             status = PlaybackStatus.Disposed,
@@ -306,6 +341,7 @@ class PlaybackCoordinator(
         if (event.error < 0) {
             hasActiveFile = false
             stopRequested = false
+            resetPendingQueueLoadIfLoading()
             publishSnapshot(snapshot.value.copy(status = PlaybackStatus.Error))
             return
         }
@@ -321,7 +357,8 @@ class PlaybackCoordinator(
                                 if (pauseProperty) PlaybackStatus.Paused else PlaybackStatus.Playing
                             } else {
                                 next.status
-                            }, playWhenReady = !pauseProperty
+                            },
+                            playWhenReady = pendingQueuePlayWhenReady() ?: !pauseProperty
                         )
                     }
 
@@ -386,7 +423,7 @@ class PlaybackCoordinator(
                 pauseProperty = true
                 next = next.copy(
                     status = if (hasActiveFile) PlaybackStatus.Paused else next.status,
-                    playWhenReady = false
+                    playWhenReady = pendingQueuePlayWhenReady() ?: false
                 )
             }
 
@@ -394,13 +431,14 @@ class PlaybackCoordinator(
                 pauseProperty = false
                 next = next.copy(
                     status = if (hasActiveFile) PlaybackStatus.Playing else next.status,
-                    playWhenReady = true
+                    playWhenReady = pendingQueuePlayWhenReady() ?: true
                 )
             }
 
             MpvEventType.StartFile -> {
                 hasActiveFile = false
                 stopRequested = false
+                markPendingQueueLoading()
                 next = next.copy(
                     status = PlaybackStatus.Loading,
                     positionMillis = 0,
@@ -410,7 +448,40 @@ class PlaybackCoordinator(
                 )
             }
 
-            MpvEventType.FileLoaded, MpvEventType.PlaybackRestart -> {
+            MpvEventType.FileLoaded -> {
+                hasActiveFile = true
+                val pendingPlayWhenReady = consumePendingQueueLoad()
+                if (pendingPlayWhenReady != null) {
+                    if (pendingPlayWhenReady) {
+                        val playResult = player.play()
+                        if (playResult < 0) {
+                            next = next.copy(status = PlaybackStatus.Error)
+                        } else {
+                            pauseProperty = false
+                            next = next.copy(
+                                status = PlaybackStatus.Playing,
+                                playWhenReady = true
+                            )
+                        }
+                    } else {
+                        pauseProperty = true
+                        next = next.copy(
+                            status = PlaybackStatus.Paused,
+                            playWhenReady = false
+                        )
+                    }
+                } else {
+                    next = next.copy(
+                        status = if (pauseProperty) {
+                            PlaybackStatus.Paused
+                        } else {
+                            PlaybackStatus.Playing
+                        }
+                    )
+                }
+            }
+
+            MpvEventType.PlaybackRestart -> {
                 hasActiveFile = true
                 next = next.copy(
                     status = if (pauseProperty) PlaybackStatus.Paused else PlaybackStatus.Playing
@@ -419,6 +490,7 @@ class PlaybackCoordinator(
 
             MpvEventType.EndFile -> {
                 hasActiveFile = false
+                resetPendingQueueLoadIfLoading()
                 next = next.copy(
                     status = if (stopRequested) PlaybackStatus.Stopped else PlaybackStatus.Ended
                 )
@@ -426,6 +498,7 @@ class PlaybackCoordinator(
             }
 
             MpvEventType.Idle -> {
+                resetPendingQueueLoadIfLoading()
                 if (!hasActiveFile && next.status == PlaybackStatus.Loading) {
                     next = next.copy(status = PlaybackStatus.Idle)
                 }
@@ -434,6 +507,7 @@ class PlaybackCoordinator(
             MpvEventType.Shutdown -> {
                 hasActiveFile = false
                 stopRequested = false
+                clearPendingQueueLoad()
                 next = next.copy(
                     status = PlaybackStatus.Disposed, playWhenReady = false
                 )
@@ -450,6 +524,44 @@ class PlaybackCoordinator(
             mediaIntegration.updatePlaybackState(value)
         }
         schedulePersistence()
+    }
+
+    private fun updatePendingQueuePlayWhenReady(playWhenReady: Boolean) {
+        pendingQueueLock.withLock {
+            pendingQueueLoad?.playWhenReady = playWhenReady
+        }
+    }
+
+    private fun pendingQueuePlayWhenReady(): Boolean? = pendingQueueLock.withLock {
+        pendingQueueLoad?.playWhenReady
+    }
+
+    private fun markPendingQueueLoading() {
+        pendingQueueLock.withLock {
+            pendingQueueLoad?.phase = PendingQueueLoadPhase.Loading
+        }
+    }
+
+    private fun consumePendingQueueLoad(): Boolean? = pendingQueueLock.withLock {
+        val pendingLoad = pendingQueueLoad?.takeIf {
+            it.phase == PendingQueueLoadPhase.Loading
+        } ?: return@withLock null
+        pendingQueueLoad = null
+        pendingLoad.playWhenReady
+    }
+
+    private fun resetPendingQueueLoadIfLoading() {
+        pendingQueueLock.withLock {
+            pendingQueueLoad?.takeIf {
+                it.phase == PendingQueueLoadPhase.Loading
+            }?.phase = PendingQueueLoadPhase.AwaitingStart
+        }
+    }
+
+    private fun clearPendingQueueLoad() {
+        pendingQueueLock.withLock {
+            pendingQueueLoad = null
+        }
     }
 
     private fun publishMetadata(metadata: PlaybackMetadata?) {
