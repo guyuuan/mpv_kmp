@@ -229,7 +229,6 @@ private data class ResolvedMpvLibrary(
     val platform: DesktopNativePlatform,
     val mainLibraryPath: String,
     val directory: File,
-    val dependencyLibraryPaths: List<String>,
     val source: String
 )
 
@@ -266,15 +265,7 @@ private fun resolveMpvLibraryInDirectory(
     directory: File, platform: DesktopNativePlatform, source: String
 ): ResolvedMpvLibrary? {
     val main = findMainLibrary(directory, platform) ?: return null
-    val dependencies = if (platform.os == "darwin") {
-        directory.listFiles()?.filter { it.isFile && it.extension == "dylib" }
-            ?.filter { it.absolutePath != main.absolutePath && it.name != "libmpv_kmp_macos_shim.dylib" }
-            ?.sortedWith(compareBy<File> { macosDependencyLoadPriority(it.name) }.thenBy { it.name })
-            ?.map { it.absolutePath } ?: emptyList()
-    } else {
-        emptyList()
-    }
-    return ResolvedMpvLibrary(platform, main.absolutePath, directory, dependencies, source)
+    return ResolvedMpvLibrary(platform, main.absolutePath, directory, source)
 }
 
 private fun configuredNativeLibrary(
@@ -405,21 +396,6 @@ private fun bundledLibraryNames(platform: String): List<String> {
     }.thenBy { it })
 }
 
-private fun macosDependencyLoadPriority(name: String): Int {
-    return when (name) {
-        "libavutil.dylib" -> 0
-        "libswresample.dylib" -> 1
-        "libswscale.dylib" -> 2
-        "libavcodec.dylib" -> 3
-        "libavformat.dylib" -> 4
-        "libavfilter.dylib" -> 5
-        "libavdevice.dylib" -> 6
-        "libmpv.2.dylib" -> 100
-        "libmpv.dylib" -> 101
-        else -> 50
-    }
-}
-
 private fun addBundledLibraryNamesFromCodeSource(platform: String, names: MutableSet<String>) {
     val location = Mpv::class.java.protectionDomain?.codeSource?.location ?: return
     val path = Path.of(location.toURI())
@@ -452,8 +428,32 @@ private interface GLLibrary : Library {
 }
 
 private interface WindowsKernel32Library : Library {
-    fun SetDllDirectoryW(pathName: WString?): Boolean
+    fun LoadLibraryExW(fileName: WString, file: Pointer?, flags: Int): Pointer?
+    fun FreeLibrary(module: Pointer): Boolean
 }
+
+private const val POSIX_RTLD_NOW = 0x2
+private const val DARWIN_RTLD_LOCAL = 0x4
+private const val DARWIN_RTLD_GLOBAL = 0x8
+private const val WINDOWS_LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR = 0x00000100
+private const val WINDOWS_LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800
+
+internal fun mpvNativeOpenOptions(os: String): Map<String, Any> {
+    // Keep bundled mpv/FFmpeg symbols private to this native dependency graph.
+    return when (os) {
+        "darwin" -> mapOf(
+            Library.OPTION_OPEN_FLAGS to (POSIX_RTLD_NOW or DARWIN_RTLD_LOCAL)
+        )
+        // RTLD_LOCAL is zero (and the default) on Linux; 0x4 is RTLD_NOLOAD.
+        "linux" -> mapOf(Library.OPTION_OPEN_FLAGS to POSIX_RTLD_NOW)
+        else -> emptyMap()
+    }
+}
+
+private data class WindowsLoadedModule(
+    val kernel32: WindowsKernel32Library,
+    val handle: Pointer
+)
 
 private object GL {
     val libName: String? = try {
@@ -490,10 +490,11 @@ internal object MpvNative {
     private val platform: DesktopNativePlatform by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         currentDesktopNativePlatform()
     }
+    private var macosShim: NativeLibrary? = null
 
-    private fun probe(libKey: String) {
+    private fun probe(libKey: String, options: Map<String, Any>) {
         try {
-            val raw = NativeLibrary.getInstance(libKey)
+            val raw = NativeLibrary.getInstance(libKey, options)
             val createAddr = raw.getFunction("mpv_create").hashCode()
             val verFn = raw.getFunction("mpv_client_api_version")
             val ver = verFn.invokeLong(emptyArray())
@@ -525,9 +526,10 @@ internal object MpvNative {
 
         try {
             nativeTrace("mpv.lib.load.system.try")
-            val loaded = Native.load("mpv", MPVLibrary::class.java)
+            val options = mpvNativeOpenOptions(platform.os)
+            val loaded = Native.load("mpv", MPVLibrary::class.java, options)
             nativeTrace("mpv.lib.load.system.success")
-            probe("mpv")
+            probe("mpv", options)
             loaded
         } catch (systemError: Throwable) {
             failures.forEach { systemError.addSuppressed(it) }
@@ -540,52 +542,49 @@ internal object MpvNative {
             "mpv library load source=${resolved.source} platform=${resolved.platform.id} " +
                 "path=${resolved.mainLibraryPath} dir=${resolved.directory.absolutePath}"
         }
-        configureWindowsDllSearchPath(resolved)
+        val windowsModule = loadWindowsLibraryWithScopedSearchPath(resolved)
         loadMacosShimForBundledMpv(resolved)
-        preloadBundledDependencies(resolved)
-        verifyBundledMpvClientApi(resolved)
-        val loaded = Native.load(resolved.mainLibraryPath, MPVLibrary::class.java)
-        nativeTrace("mpv.lib.load.${resolved.source}.success")
-        probe(resolved.mainLibraryPath)
-        return loaded
-    }
-
-    private fun configureWindowsDllSearchPath(resolved: ResolvedMpvLibrary) {
-        if (resolved.platform.os != "windows") return
-        val path = resolved.directory.absolutePath
-        NativeLibrary.addSearchPath("mpv", path)
-        NativeLibrary.addSearchPath("libmpv", path)
         try {
-            val kernel32 = Native.load("kernel32", WindowsKernel32Library::class.java)
-            if (kernel32.SetDllDirectoryW(WString(path))) {
-                Logger.d(tag = "NativeTrace") { "Windows DLL directory configured: $path" }
-            } else {
-                Logger.e(tag = "NativeTrace") {
-                    "failed to configure Windows DLL directory: $path"
+            val options = mpvNativeOpenOptions(resolved.platform.os)
+            verifyBundledMpvClientApi(resolved, options)
+            val loaded = Native.load(resolved.mainLibraryPath, MPVLibrary::class.java, options)
+            nativeTrace("mpv.lib.load.${resolved.source}.success")
+            probe(resolved.mainLibraryPath, options)
+            return loaded
+        } finally {
+            windowsModule?.let { module ->
+                if (!module.kernel32.FreeLibrary(module.handle)) {
+                    Logger.w(tag = "NativeTrace") {
+                        "failed to release temporary Windows mpv module handle"
+                    }
                 }
             }
-        } catch (e: Throwable) {
-            Logger.e(throwable = e, tag = "NativeTrace") {
-                "error configuring Windows DLL directory: $path"
-            }
         }
     }
 
-    private fun preloadBundledDependencies(resolved: ResolvedMpvLibrary) {
-        if (resolved.platform.os != "darwin") return
-        val options = mapOf(Library.OPTION_OPEN_FLAGS to (0x2 or 0x8)) // RTLD_NOW | RTLD_GLOBAL
-        for (path in resolved.dependencyLibraryPaths) {
-            NativeLibrary.getInstance(path, options)
-            Logger.d(tag = "NativeTrace") { "mpv dependency loaded: $path" }
+    private fun loadWindowsLibraryWithScopedSearchPath(
+        resolved: ResolvedMpvLibrary
+    ): WindowsLoadedModule? {
+        if (resolved.platform.os != "windows") return null
+        val kernel32 = Native.load("kernel32", WindowsKernel32Library::class.java)
+        // Unlike SetDllDirectoryW, these flags affect only this load operation.
+        val flags = WINDOWS_LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR or
+            WINDOWS_LOAD_LIBRARY_SEARCH_SYSTEM32
+        val handle = kernel32.LoadLibraryExW(WString(resolved.mainLibraryPath), null, flags)
+            ?: throw UnsatisfiedLinkError(
+                "Unable to load bundled mpv with an isolated DLL search path: " +
+                    "${resolved.mainLibraryPath} (Windows error ${Native.getLastError()})"
+            )
+        Logger.d(tag = "NativeTrace") {
+            "Windows mpv loaded with an isolated DLL search path: ${resolved.mainLibraryPath}"
         }
+        return WindowsLoadedModule(kernel32, handle)
     }
 
-    private fun verifyBundledMpvClientApi(resolved: ResolvedMpvLibrary) {
-        val options = if (resolved.platform.os == "darwin") {
-            mapOf(Library.OPTION_OPEN_FLAGS to (0x2 or 0x8)) // RTLD_NOW | RTLD_GLOBAL
-        } else {
-            emptyMap<String, Any>()
-        }
+    private fun verifyBundledMpvClientApi(
+        resolved: ResolvedMpvLibrary,
+        options: Map<String, Any>
+    ) {
         val raw = NativeLibrary.getInstance(resolved.mainLibraryPath, options)
         raw.getFunction("mpv_create")
         raw.getFunction("mpv_client_api_version")
@@ -598,8 +597,11 @@ internal object MpvNative {
             Logger.w(tag = "NativeTrace") { "mpv shim missing: ${shim.absolutePath}" }
             return
         }
-        val options = mapOf(Library.OPTION_OPEN_FLAGS to (0x2 or 0x8)) // RTLD_NOW | RTLD_GLOBAL
-        NativeLibrary.getInstance(shim.absolutePath, options)
+        val options = mapOf(
+            Library.OPTION_OPEN_FLAGS to (POSIX_RTLD_NOW or DARWIN_RTLD_GLOBAL)
+        )
+        // The shim supplies optional Cocoa symbols, so it alone remains globally visible.
+        macosShim = NativeLibrary.getInstance(shim.absolutePath, options)
         Logger.d(tag = "NativeTrace") { "mpv shim loaded: ${shim.absolutePath}" }
     }
 }
