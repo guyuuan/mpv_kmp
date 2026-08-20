@@ -8,6 +8,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import com.guyuuan.kmp.mpv.config.MpvConfig
 import com.guyuuan.kmp.mpv.service.AndroidPlaybackCoordinatorOwner
@@ -57,7 +59,17 @@ actual fun rememberPipMpvPlayer(config: MpvConfig): PipMpvPlayer {
             }
         )
     }
-
+    LifecycleStartEffect(
+        key1 = pipController,
+        lifecycleOwner = activity ?: LocalLifecycleOwner.current
+    ) {
+        onStopOrDispose {
+            val pip = pipController.state.value == PictureInPictureState.Active
+            if (pip) {
+                player.pause()
+            }
+        }
+    }
     DisposableEffect(player) {
         onDispose(player::close)
     }
