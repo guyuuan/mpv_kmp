@@ -29,8 +29,12 @@ actual fun rememberPipMpvPlayer(config: MpvConfig): PipMpvPlayer {
     val mediaSessionConnection = remember(context, activity) {
         AndroidMediaSessionConnection(context)
     }
-    val pipController = remember(activity) {
-        AndroidPictureInPictureController(activity)
+    val pipController = remember(activity, coordinator) {
+        AndroidPictureInPictureController(
+            activity = activity,
+            initialPlaybackSnapshot = coordinator.snapshot.value,
+            onPlaybackCommand = coordinator::execute
+        )
     }
     val videoOutput = remember(coordinator, pipController) {
         AndroidPlaybackCoordinatorVideoOutput(
@@ -43,7 +47,10 @@ actual fun rememberPipMpvPlayer(config: MpvConfig): PipMpvPlayer {
             coordinator = coordinator,
             videoOutput = videoOutput,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
-            onSnapshot = videoOutput::updatePlaybackSnapshot
+            onSnapshot = { snapshot ->
+                videoOutput.updatePlaybackSnapshot(snapshot)
+                pipController.updatePlaybackSnapshot(snapshot)
+            }
         )
     }
     val player = remember(mediaPlayer, videoOutput, mediaSessionConnection, pipController) {
