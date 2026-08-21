@@ -34,6 +34,17 @@ player.load(
         mediaType = PlaybackMediaType.Video
     )
 )
+
+player.addToPlaylist(
+    metadata = PlaybackMetadata(
+        mediaId = "episode-2",
+        uri = nextVideoUrl,
+        title = "Episode 2",
+        artwork = PlaybackArtwork.Uri(nextArtworkUrl),
+        mediaType = PlaybackMediaType.Video
+    ),
+    position = 1
+)
 ```
 
 应用自行维护相邻媒体、不使用 libmpv playlist 时，可通过 `PipMpvPlayer` 动态注册导航

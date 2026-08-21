@@ -145,6 +145,30 @@ class PlaybackCoordinator(
         return result
     }
 
+    /** Inserts semantic media into the owned playlist, or appends it when [position] is null. */
+    fun addToPlaylist(metadata: PlaybackMetadata, position: Int? = null): Int {
+        ensureUsable()
+        require(position == null || position in 0..queue.size) {
+            "Playlist position must be between 0 and ${queue.size}"
+        }
+
+        val insertionIndex = position ?: queue.size
+        val result = player.addToPlaylist(metadata.uri, position)
+        if (result >= 0) {
+            queue = queue.take(insertionIndex) + metadata + queue.drop(insertionIndex)
+            val currentIndex = snapshot.value.queueIndex?.let { index ->
+                if (insertionIndex <= index) index + 1 else index
+            }
+            publishSnapshot(
+                snapshot.value.copy(
+                    queueIndex = currentIndex,
+                    queueSize = queue.size
+                )
+            )
+        }
+        return result
+    }
+
     fun updateMetadata(metadata: PlaybackMetadata?) {
         ensureUsable()
         val index = snapshot.value.queueIndex

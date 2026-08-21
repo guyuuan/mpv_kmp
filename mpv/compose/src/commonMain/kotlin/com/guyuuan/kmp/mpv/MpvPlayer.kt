@@ -86,6 +86,8 @@ interface MpvPlayer {
     val decoderInfoFlow: Flow<MpvDecoderInfo>
 
     fun load(uri: String): Int
+    /** Inserts [uri] at [position], or appends it when [position] is null. */
+    fun addToPlaylist(uri: String, position: Int? = null): Int = UNSUPPORTED_MPV_COMMAND
     fun play(): Int
     fun pause(): Int
     fun stop(): Int
@@ -114,7 +116,7 @@ interface MpvPlayer {
         if (snapshot.value.isPaused) play() else pause()
 }
 
-/** Optional queue control implemented by players that own a mutable libmpv playlist. */
+/** Optional full-queue replacement implemented by players that own a mutable playlist. */
 interface MpvPlaylistController {
     fun setQueue(
         uris: List<String>,
@@ -461,6 +463,24 @@ class LocalMpvPlayer(
         } else {
             pendingQueueLoad = null
             publish(snapshot.value.copy(state = MpvPlayerState.Error))
+        }
+        return result
+    }
+
+    override fun addToPlaylist(uri: String, position: Int?): Int {
+        ensureUsable()
+        require(position == null || position in 0..playlistSize) {
+            "Playlist position must be between 0 and $playlistSize"
+        }
+
+        val result = mpv.addToPlaylist(uri, position)
+        if (result >= 0) {
+            val currentPosition = playlistPosition
+            if (position != null && currentPosition != null && position <= currentPosition) {
+                playlistPosition = currentPosition + 1
+            }
+            playlistSize += 1
+            publish(snapshot.value.withPlaylistNavigation(playlistPosition, playlistSize))
         }
         return result
     }

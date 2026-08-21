@@ -6,6 +6,7 @@ import com.guyuuan.kmp.mpv.data.MpvPlaylistItem
 import com.guyuuan.kmp.mpv.props.MpvDecoderProperties
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -16,6 +17,30 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 class MpvPlayerTest {
+    @Test
+    fun localPlayerInsertsMediaAtRequestedPlaylistPosition() = runBlocking {
+        val mpv = FakeMpv(emptyMap())
+        val playerScope = CoroutineScope(Job())
+        val player = LocalMpvPlayer(mpv, playerScope)
+        player.setup()
+        assertEquals(
+            0,
+            player.setQueue(
+                uris = listOf("first", "second", "third"),
+                currentIndex = 1,
+                playWhenReady = false
+            )
+        )
+
+        assertEquals(0, player.addToPlaylist("inserted", position = 1))
+
+        assertEquals("inserted" to 1, mpv.addedPlaylistItems.last())
+        assertTrue(player.snapshot.value.canPrevious)
+        assertTrue(player.snapshot.value.canNext)
+        player.close()
+        playerScope.cancel()
+    }
+
     @Test
     fun localPlayerBuildsQueueAroundSelectedItem() = runBlocking {
         val mpv = FakeMpv(emptyMap())

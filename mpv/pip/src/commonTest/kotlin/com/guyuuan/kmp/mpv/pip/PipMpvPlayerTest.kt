@@ -150,6 +150,10 @@ class PipMpvPlayerTest {
         assertEquals(0, delegate.queueIndex)
         assertFalse(delegate.queuePlayWhenReady)
 
+        assertEquals(RESULT_CODE, player.addToPlaylist(updated, position = 2))
+        assertSame(updated, delegate.insertedMetadata)
+        assertEquals(2, delegate.insertionPosition)
+
         player.updateMetadata(updated)
         assertSame(updated, delegate.updatedMetadata)
     }
@@ -170,6 +174,10 @@ class PipMpvPlayerTest {
         assertEquals(metadata.map(PlaybackMetadata::uri), delegate.queuedUris)
         assertEquals(1, delegate.queueIndex)
         assertFalse(delegate.queuePlayWhenReady)
+
+        assertEquals(RESULT_CODE, player.addToPlaylist(metadata.first(), position = 1))
+        assertEquals(metadata.first().uri, delegate.insertedUri)
+        assertEquals(1, delegate.insertionPosition)
     }
 
     @Test
@@ -306,6 +314,10 @@ class PipMpvPlayerTest {
             private set
         var queuePlayWhenReady = true
             private set
+        var insertedMetadata: PlaybackMetadata? = null
+            private set
+        var insertionPosition: Int? = null
+            private set
 
         override fun load(metadata: PlaybackMetadata): Int {
             loadedMetadata = metadata
@@ -320,6 +332,15 @@ class PipMpvPlayerTest {
             queuedMetadata = metadata
             queueIndex = currentIndex
             queuePlayWhenReady = playWhenReady
+            return RESULT_CODE
+        }
+
+        override fun addToPlaylist(
+            metadata: PlaybackMetadata,
+            position: Int?
+        ): Int {
+            insertedMetadata = metadata
+            insertionPosition = position
             return RESULT_CODE
         }
 
@@ -356,6 +377,16 @@ class PipMpvPlayerTest {
             private set
         var queuePlayWhenReady = true
             private set
+        var insertedUri: String? = null
+            private set
+        var insertionPosition: Int? = null
+            private set
+
+        override fun addToPlaylist(uri: String, position: Int?): Int {
+            insertedUri = uri
+            insertionPosition = position
+            return RESULT_CODE
+        }
 
         override fun setQueue(
             uris: List<String>,

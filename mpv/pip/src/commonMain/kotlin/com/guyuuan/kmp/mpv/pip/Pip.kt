@@ -114,6 +114,11 @@ class PipMpvPlayer internal constructor(
         else -> null
     }
 
+    /** Inserts rich media metadata at [position], or appends it when [position] is null. */
+    fun addToPlaylist(metadata: PlaybackMetadata, position: Int? = null): Int =
+        (delegate as? PlaybackMetadataController)?.addToPlaylist(metadata, position)
+            ?: delegate.addToPlaylist(metadata.uri, position)
+
     /** Replaces metadata for the currently playing item without reloading its media URI. */
     fun updateMetadata(metadata: PlaybackMetadata?) {
         (delegate as? PlaybackMetadataController)?.updateMetadata(metadata)
@@ -152,6 +157,7 @@ class PipMpvPlayer internal constructor(
 internal interface PlaybackMetadataController {
     fun load(metadata: PlaybackMetadata): Int
     fun updateMetadata(metadata: PlaybackMetadata?)
+    fun addToPlaylist(metadata: PlaybackMetadata, position: Int? = null): Int
     fun addToPlayList(
         metadata: List<PlaybackMetadata>,
         currentIndex: Int,
@@ -213,6 +219,19 @@ internal class PlaybackCoordinatorMpvPlayer(
     }
 
     override fun load(metadata: PlaybackMetadata): Int = coordinator.load(metadata)
+
+    override fun addToPlaylist(uri: String, position: Int?): Int = addToPlaylist(
+        metadata = PlaybackMetadata(
+            mediaId = uri,
+            uri = uri,
+            title = uri.substringAfterLast('/').substringBefore('?').ifBlank { uri },
+            mediaType = PlaybackMediaType.Video
+        ),
+        position = position
+    )
+
+    override fun addToPlaylist(metadata: PlaybackMetadata, position: Int?): Int =
+        coordinator.addToPlaylist(metadata, position)
 
     override fun addToPlayList(
         metadata: List<PlaybackMetadata>,

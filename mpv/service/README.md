@@ -41,6 +41,14 @@ coordinator.setQueue(
         )
     )
 )
+coordinator.addToPlaylist(
+    metadata = PlaybackMetadata(
+        mediaId = "episode-43",
+        uri = nextMediaUri,
+        title = "Episode 43"
+    ),
+    position = 1
+)
 ```
 
 如果应用自行维护相邻媒体而不使用 libmpv playlist，可向 coordinator 注册

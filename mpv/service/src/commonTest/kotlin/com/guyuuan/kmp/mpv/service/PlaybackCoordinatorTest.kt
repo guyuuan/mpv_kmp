@@ -25,6 +25,32 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 class PlaybackCoordinatorTest {
     @Test
+    fun insertsMetadataAtRequestedPlaylistPosition() {
+        val fixture = Fixture()
+        fixture.coordinator.start()
+        val first = PlaybackMetadata("first", "file:///first.mp3", "First")
+        val second = PlaybackMetadata("second", "file:///second.mp3", "Second")
+        val inserted = PlaybackMetadata("inserted", "file:///inserted.mp3", "Inserted")
+        assertEquals(
+            0,
+            fixture.coordinator.setQueue(
+                items = listOf(first, second),
+                currentIndex = 1,
+                playWhenReady = false
+            )
+        )
+
+        assertEquals(0, fixture.coordinator.addToPlaylist(inserted, position = 1))
+
+        assertEquals(listOf(first, inserted, second), fixture.coordinator.queueItems)
+        assertEquals(listOf(first.uri, inserted.uri, second.uri), fixture.mpv.playlistUris)
+        assertEquals(2, fixture.coordinator.snapshot.value.queueIndex)
+        assertEquals(3, fixture.coordinator.snapshot.value.queueSize)
+        assertSame(second, fixture.coordinator.snapshot.value.metadata)
+        fixture.close()
+    }
+
+    @Test
     fun coordinatorOwnsPlayerUntilExplicitClose() {
         val fixture = Fixture()
 

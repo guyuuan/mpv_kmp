@@ -25,6 +25,13 @@ MpvComposeView(
 )
 ```
 
+可将媒体追加到当前播放列表，或通过结果列表中的零基索引插入指定位置：
+
+```kotlin
+player.addToPlaylist(nextUri)
+player.addToPlaylist(priorityUri, position = 1)
+```
+
 `MpvPlayer` is a platform-neutral command and state interface. Collect `player.snapshot` for
 position, duration, volume, speed, and playback state. The raw-`Mpv` `MpvComposeView(state = ...)`
 overload remains available for low-level integrations, but it does not provide ownership or
