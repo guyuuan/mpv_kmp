@@ -76,7 +76,7 @@ fun App(overlay: @Composable BoxScope.() -> Unit = {}) {
                     albumTitle = "album",
                     artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
                     mediaType = PlaybackMediaType.Video
-                )),1)
+                )),)
         }
 
         MpvComposeView(
