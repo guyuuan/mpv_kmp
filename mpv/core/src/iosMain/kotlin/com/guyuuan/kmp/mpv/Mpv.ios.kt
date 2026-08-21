@@ -75,7 +75,8 @@ private class IosMpv(
     private companion object {
         val DEFAULT_CONFIG: Map<String, String> = Mpv.DEFAULT_CONFIG + mapOf(
             "vo" to "libmpv",
-            "ao" to "audiounit"
+            "ao" to "audiounit",
+            "audio-exclusive" to "yes"
 //            "profile" to "sw-fast",
 //            "hwdec" to "videotoolbox-copy",
 //            "sws-fast" to "yes",
