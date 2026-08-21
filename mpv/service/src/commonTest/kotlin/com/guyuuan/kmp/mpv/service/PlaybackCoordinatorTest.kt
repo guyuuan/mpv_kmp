@@ -236,6 +236,7 @@ class PlaybackCoordinatorTest {
         fixture.integration.handler.handle(MediaCommand.Pause)
         fixture.integration.handler.handle(MediaCommand.SeekBy(-5_000))
         fixture.integration.handler.handle(MediaCommand.Next)
+        fixture.integration.handler.handle(MediaCommand.Previous)
         fixture.integration.handler.handle(MediaCommand.SetSpeed(1.5f))
         fixture.integration.handler.handle(MediaCommand.SetVolume(42f))
         fixture.integration.handler.handle(MediaCommand.SetRepeatMode(PlaybackRepeatMode.All))
@@ -244,10 +245,58 @@ class PlaybackCoordinatorTest {
         assertEquals(1, fixture.mpv.pauseCount)
         assertEquals(15.0, fixture.mpv.seekPosition)
         assertEquals(1, fixture.mpv.nextCount)
+        assertEquals(1, fixture.mpv.previousCount)
         assertEquals("1.5", fixture.mpv.properties[MpvPlaybackProperties.SPEED])
         assertEquals(42.0, fixture.mpv.volume)
         assertEquals("inf", fixture.mpv.properties["loop-playlist"])
         assertEquals(listOf("playlist-shuffle"), fixture.mpv.commands)
+        fixture.close()
+    }
+
+    @Test
+    fun navigationHandlerReceivesCommandsWithoutUsingMpvPlaylist() {
+        val received = mutableListOf<MediaCommand>()
+        val fixture = Fixture(
+            navigationHandler = object : PlaybackNavigationHandler {
+                override fun onPrevious() {
+                    received += MediaCommand.Previous
+                }
+
+                override fun onNext() {
+                    received += MediaCommand.Next
+                }
+            }
+        )
+        fixture.coordinator.start()
+
+        assertEquals(0, fixture.coordinator.execute(MediaCommand.Next))
+        assertEquals(0, fixture.coordinator.execute(MediaCommand.Previous))
+
+        assertEquals(listOf(MediaCommand.Next, MediaCommand.Previous), received)
+        assertEquals(0, fixture.mpv.nextCount)
+        assertEquals(0, fixture.mpv.previousCount)
+        fixture.close()
+    }
+
+    @Test
+    fun unavailableNavigationCommandDoesNotReachNavigationHandler() {
+        var nextCount = 0
+        val fixture = Fixture(
+            availableCommands = DEFAULT_MEDIA_COMMANDS - MediaCommandType.Next,
+            navigationHandler = object : PlaybackNavigationHandler {
+                override fun onPrevious() = Unit
+
+                override fun onNext() {
+                    nextCount += 1
+                }
+            }
+        )
+        fixture.coordinator.start()
+
+        assertEquals(0, fixture.coordinator.execute(MediaCommand.Next))
+
+        assertEquals(0, nextCount)
+        assertEquals(0, fixture.mpv.nextCount)
         fixture.close()
     }
 
@@ -488,7 +537,8 @@ class PlaybackCoordinatorTest {
     private class Fixture(
         availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
         stateStore: PlaybackStateStore? = null,
-        artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null
+        artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null,
+        navigationHandler: PlaybackNavigationHandler? = null
     ) {
         val mpv = FakeMpv()
         val integration = RecordingIntegration()
@@ -497,7 +547,8 @@ class PlaybackCoordinatorTest {
             mediaIntegration = integration,
             stateStore = stateStore,
             availableCommands = availableCommands,
-            artworkLoaderFactory = artworkLoaderFactory
+            artworkLoaderFactory = artworkLoaderFactory,
+            navigationHandler = navigationHandler
         )
 
         fun close() {
@@ -539,6 +590,7 @@ class PlaybackCoordinatorTest {
         var pauseCount = 0
         var playCount = 0
         var nextCount = 0
+        var previousCount = 0
         var seekPosition: Double? = null
         var volume: Double? = null
         val properties = mutableMapOf<String, String>()
@@ -581,7 +633,10 @@ class PlaybackCoordinatorTest {
             nextCount += 1
             return 0
         }
-        override fun playlistPrev(): Int = 0
+        override fun playlistPrev(): Int {
+            previousCount += 1
+            return 0
+        }
         override fun playlistClear(): Int = 0
         override fun seekTo(position: Double): Int {
             seekPosition = position

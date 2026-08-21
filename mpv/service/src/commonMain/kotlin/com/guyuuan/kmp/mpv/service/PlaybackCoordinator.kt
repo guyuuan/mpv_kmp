@@ -33,7 +33,8 @@ class PlaybackCoordinator(
     private val stateStore: PlaybackStateStore? = null,
     availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
     artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null,
-    private val mpvConfig: MpvConfig = MpvConfig()
+    private val mpvConfig: MpvConfig = MpvConfig(),
+    private val navigationHandler: PlaybackNavigationHandler? = null
 ) : MediaCommandHandler {
     private enum class PendingQueueLoadPhase {
         AwaitingStart,
@@ -213,8 +214,15 @@ class PlaybackCoordinator(
                 player.seekTo(position / MILLIS_PER_SECOND)
             }
 
-            MediaCommand.Next -> player.playlistNext()
-            MediaCommand.Previous -> player.playlistPrev()
+            MediaCommand.Next -> navigationHandler?.let {
+                it.onNext()
+                COMMAND_ACCEPTED
+            } ?: player.playlistNext()
+
+            MediaCommand.Previous -> navigationHandler?.let {
+                it.onPrevious()
+                COMMAND_ACCEPTED
+            } ?: player.playlistPrev()
             is MediaCommand.SetSpeed -> player.setSpeed(command.speed)
             is MediaCommand.SetVolume -> player.setVolume(command.volume.toDouble())
             is MediaCommand.SetRepeatMode -> applyRepeatMode(command.repeatMode)
@@ -627,6 +635,7 @@ class PlaybackCoordinator(
 }
 
 private const val MILLIS_PER_SECOND = 1000.0
+private const val COMMAND_ACCEPTED = 0
 private const val PERSISTENCE_DEBOUNCE_MILLIS = 1_000L
 private const val PLAYLIST_POSITION = "playlist-pos"
 private const val LOOP_FILE = "loop-file"

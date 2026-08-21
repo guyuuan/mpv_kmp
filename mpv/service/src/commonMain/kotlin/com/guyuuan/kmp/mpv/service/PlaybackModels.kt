@@ -146,6 +146,18 @@ sealed interface MediaCommand {
     }
 }
 
+/**
+ * Handles semantic previous/next navigation when the application does not use libmpv's playlist.
+ *
+ * The handler only acknowledges the navigation request. It may resolve the adjacent item
+ * asynchronously and load it through the owning [PlaybackCoordinator].
+ */
+interface PlaybackNavigationHandler {
+    fun onPrevious()
+
+    fun onNext()
+}
+
 data class PlaybackSnapshot(
     val metadata: PlaybackMetadata? = null,
     val status: PlaybackStatus = PlaybackStatus.Idle,

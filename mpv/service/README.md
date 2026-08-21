@@ -43,6 +43,34 @@ coordinator.setQueue(
 )
 ```
 
+如果应用自行维护相邻媒体而不使用 libmpv playlist，可向 coordinator 注入
+`PlaybackNavigationHandler`。来自 MediaSession、Now Playing、SMTC 或 MPRIS 的上一首和
+下一首命令会交给该处理器；未注入时仍使用 libmpv 的 `playlist-prev`/`playlist-next`：
+
+```kotlin
+lateinit var coordinator: PlaybackCoordinator
+coordinator = PlaybackCoordinator(
+    mediaIntegration = platformMediaIntegration,
+    navigationHandler = object : PlaybackNavigationHandler {
+        override fun onPrevious() {
+            applicationScope.launch {
+                repository.previous(currentMediaId)?.let(coordinator::load)
+            }
+        }
+
+        override fun onNext() {
+            applicationScope.launch {
+                repository.next(currentMediaId)?.let(coordinator::load)
+            }
+        }
+    }
+)
+```
+
+应用应根据是否存在相邻媒体，通过 `updateAvailableCommands()` 动态添加或移除
+`MediaCommandType.Previous` 和 `MediaCommandType.Next`；移除后平台媒体界面不会发布对应
+操作，已到达公共命令层的不可用命令也不会触发处理器。
+
 `PlaybackArtworkLoaderFactory` 为每个 `PlaybackCoordinator` 创建且只创建一个 loader。
 `AbstractPlaybackArtworkLoader` 位于 `commonMain`，统一实现异步调度、取消旧请求、过期结果
 过滤和异常回退，应用只需实现 `loadBytes()`。它不缓存历史封面：切换媒体时旧请求和引用
