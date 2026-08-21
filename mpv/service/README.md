@@ -43,28 +43,29 @@ coordinator.setQueue(
 )
 ```
 
-如果应用自行维护相邻媒体而不使用 libmpv playlist，可向 coordinator 注入
+如果应用自行维护相邻媒体而不使用 libmpv playlist，可向 coordinator 注册
 `PlaybackNavigationHandler`。来自 MediaSession、Now Playing、SMTC 或 MPRIS 的上一首和
-下一首命令会交给该处理器；未注入时仍使用 libmpv 的 `playlist-prev`/`playlist-next`：
+下一首命令会交给唯一的已注册处理器；已有处理器时再次调用 `addNavigationHandler()` 会
+返回 `false`。没有处理器时仍使用 libmpv 的
+`playlist-prev`/`playlist-next`：
 
 ```kotlin
-lateinit var coordinator: PlaybackCoordinator
-coordinator = PlaybackCoordinator(
-    mediaIntegration = platformMediaIntegration,
-    navigationHandler = object : PlaybackNavigationHandler {
-        override fun onPrevious() {
-            applicationScope.launch {
-                repository.previous(currentMediaId)?.let(coordinator::load)
-            }
-        }
-
-        override fun onNext() {
-            applicationScope.launch {
-                repository.next(currentMediaId)?.let(coordinator::load)
-            }
+val navigationHandler = object : PlaybackNavigationHandler {
+    override fun onPrevious() {
+        applicationScope.launch {
+            repository.previous(currentMediaId)?.let(coordinator::load)
         }
     }
-)
+
+    override fun onNext() {
+        applicationScope.launch {
+            repository.next(currentMediaId)?.let(coordinator::load)
+        }
+    }
+}
+coordinator.addNavigationHandler(navigationHandler)
+// 不再需要接收命令时：
+coordinator.removeNavigationHandler(navigationHandler)
 ```
 
 应用应根据是否存在相邻媒体，通过 `updateAvailableCommands()` 动态添加或移除

@@ -16,6 +16,7 @@ import com.guyuuan.kmp.mpv.service.MediaCommandType
 import com.guyuuan.kmp.mpv.service.PlaybackCoordinator
 import com.guyuuan.kmp.mpv.service.PlaybackMediaType
 import com.guyuuan.kmp.mpv.service.PlaybackMetadata
+import com.guyuuan.kmp.mpv.service.PlaybackNavigationHandler
 import com.guyuuan.kmp.mpv.service.PlaybackSnapshot
 import com.guyuuan.kmp.mpv.service.PlaybackStatus
 import kotlinx.coroutines.CoroutineScope
@@ -72,6 +73,7 @@ class PipMpvPlayer internal constructor(
         }
 
     private var closed = false
+    private var navigationHandler: PlaybackNavigationHandler? = null
 
     /**
      * Requests an immediate, user-initiated transition into picture-in-picture.
@@ -117,9 +119,32 @@ class PipMpvPlayer internal constructor(
         (delegate as? PlaybackMetadataController)?.updateMetadata(metadata)
     }
 
+    /** Adds a handler for system previous/next commands when libmpv playlist is not used. */
+    fun addNavigationHandler(handler: PlaybackNavigationHandler): Boolean {
+        if (closed) return false
+        val added = (delegate as? PlaybackNavigationController)
+            ?.addNavigationHandler(handler)
+            ?: false
+        if (added) navigationHandler = handler
+        return added
+    }
+
+    /** Removes a handler previously added through this player. */
+    fun removeNavigationHandler(handler: PlaybackNavigationHandler): Boolean {
+        if (closed || navigationHandler !== handler) return false
+        val removed = (delegate as? PlaybackNavigationController)
+            ?.removeNavigationHandler(handler)
+            ?: false
+        navigationHandler = null
+        return removed
+    }
+
     fun close() {
         if (closed) return
         closed = true
+        val navigationController = delegate as? PlaybackNavigationController
+        navigationHandler?.let { navigationController?.removeNavigationHandler(it) }
+        navigationHandler = null
         release()
     }
 }
@@ -134,6 +159,11 @@ internal interface PlaybackMetadataController {
     ): Int
 }
 
+internal interface PlaybackNavigationController {
+    fun addNavigationHandler(handler: PlaybackNavigationHandler): Boolean
+    fun removeNavigationHandler(handler: PlaybackNavigationHandler): Boolean
+}
+
 /**
  * Shared PiP player facade backed by the application-level [PlaybackCoordinator].
  *
@@ -145,9 +175,10 @@ internal class PlaybackCoordinatorMpvPlayer(
     override val videoOutput: MpvVideoOutput,
     private val scope: CoroutineScope,
     private val onSnapshot: (PlaybackSnapshot) -> Unit = {}
-) : MpvPlayer, PlaybackMetadataController {
+) : MpvPlayer, PlaybackMetadataController, PlaybackNavigationController {
+    private var navigationHandler: PlaybackNavigationHandler? = null
     private val mutableSnapshot = MutableStateFlow(
-        coordinator.snapshot.value.toMpvPlayerSnapshot()
+        coordinator.snapshot.value.toMpvPlayerSnapshot(hasExternalNavigation = false)
     )
     override val snapshot: StateFlow<MpvPlayerSnapshot> = mutableSnapshot.asStateFlow()
 
@@ -161,7 +192,9 @@ internal class PlaybackCoordinatorMpvPlayer(
     init {
         scope.launch {
             coordinator.snapshot.collect { snapshot ->
-                mutableSnapshot.value = snapshot.toMpvPlayerSnapshot()
+                mutableSnapshot.value = snapshot.toMpvPlayerSnapshot(
+                    hasExternalNavigation = navigationHandler != null
+                )
                 onSnapshot(snapshot)
             }
         }
@@ -191,12 +224,33 @@ internal class PlaybackCoordinatorMpvPlayer(
         coordinator.updateMetadata(metadata)
     }
 
+    override fun addNavigationHandler(handler: PlaybackNavigationHandler): Boolean {
+        val added = coordinator.addNavigationHandler(handler)
+        if (added) {
+            navigationHandler = handler
+            refreshNavigationAvailability()
+        }
+        return added
+    }
+
+    override fun removeNavigationHandler(handler: PlaybackNavigationHandler): Boolean {
+        if (navigationHandler !== handler) return false
+        val removed = coordinator.removeNavigationHandler(handler)
+        navigationHandler = null
+        refreshNavigationAvailability()
+        return removed
+    }
+
     override fun play(): Int = coordinator.execute(MediaCommand.Play)
     override fun pause(): Int = coordinator.execute(MediaCommand.Pause)
     override fun stop(): Int = coordinator.execute(MediaCommand.Stop)
-    override fun canPrevious(): Boolean = coordinator.snapshot.value.canGoPrevious
+    override fun canPrevious(): Boolean = coordinator.snapshot.value.canGoPrevious(
+        hasExternalNavigation = navigationHandler != null
+    )
 
-    override fun canNext(): Boolean = coordinator.snapshot.value.canGoNext
+    override fun canNext(): Boolean = coordinator.snapshot.value.canGoNext(
+        hasExternalNavigation = navigationHandler != null
+    )
 
     override fun previous(): Boolean =
         canPrevious() && coordinator.execute(MediaCommand.Previous) >= 0
@@ -235,6 +289,8 @@ internal class PlaybackCoordinatorMpvPlayer(
     fun close() {
         if (closed) return
         closed = true
+        navigationHandler?.let(coordinator::removeNavigationHandler)
+        navigationHandler = null
         scope.cancel()
         mutableSnapshot.value = mutableSnapshot.value.copy(
             state = MpvPlayerState.Disposed,
@@ -242,9 +298,17 @@ internal class PlaybackCoordinatorMpvPlayer(
             canNext = false
         )
     }
+
+    private fun refreshNavigationAvailability() {
+        mutableSnapshot.value = coordinator.snapshot.value.toMpvPlayerSnapshot(
+            hasExternalNavigation = navigationHandler != null
+        )
+    }
 }
 
-internal fun PlaybackSnapshot.toMpvPlayerSnapshot(): MpvPlayerSnapshot = MpvPlayerSnapshot(
+internal fun PlaybackSnapshot.toMpvPlayerSnapshot(
+    hasExternalNavigation: Boolean = false
+): MpvPlayerSnapshot = MpvPlayerSnapshot(
     state = when (status) {
         PlaybackStatus.Idle -> MpvPlayerState.Idle
         PlaybackStatus.Loading -> MpvPlayerState.Loading
@@ -259,19 +323,19 @@ internal fun PlaybackSnapshot.toMpvPlayerSnapshot(): MpvPlayerSnapshot = MpvPlay
     durationSeconds = durationMillis / MILLIS_PER_SECOND,
     volume = volume,
     speed = speed,
-    canPrevious = canGoPrevious,
-    canNext = canGoNext
+    canPrevious = canGoPrevious(hasExternalNavigation),
+    canNext = canGoNext(hasExternalNavigation)
 )
 
-private val PlaybackSnapshot.canGoPrevious: Boolean
-    get() = queueIndex?.let { index ->
-        MediaCommandType.Previous in availableCommands && index > 0
-    } ?: false
+private fun PlaybackSnapshot.canGoPrevious(hasExternalNavigation: Boolean): Boolean =
+    MediaCommandType.Previous in availableCommands && (
+        hasExternalNavigation || queueIndex?.let { it > 0 } == true
+    )
 
-private val PlaybackSnapshot.canGoNext: Boolean
-    get() = queueIndex?.let { index ->
-        MediaCommandType.Next in availableCommands && index < queueSize - 1
-    } ?: false
+private fun PlaybackSnapshot.canGoNext(hasExternalNavigation: Boolean): Boolean =
+    MediaCommandType.Next in availableCommands && (
+        hasExternalNavigation || queueIndex?.let { it < queueSize - 1 } == true
+    )
 
 @Composable
 expect fun rememberPipMpvPlayer(config: MpvConfig = MpvConfig()): PipMpvPlayer

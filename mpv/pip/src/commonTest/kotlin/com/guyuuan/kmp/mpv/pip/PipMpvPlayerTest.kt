@@ -13,6 +13,7 @@ import com.guyuuan.kmp.mpv.service.PlaybackArtwork
 import com.guyuuan.kmp.mpv.service.PlaybackCoordinator
 import com.guyuuan.kmp.mpv.service.PlaybackMediaType
 import com.guyuuan.kmp.mpv.service.PlaybackMetadata
+import com.guyuuan.kmp.mpv.service.PlaybackNavigationHandler
 import com.guyuuan.kmp.mpv.service.PlaybackSnapshot
 import com.guyuuan.kmp.mpv.service.PlaybackStatus
 import kotlin.coroutines.CoroutineContext
@@ -63,6 +64,33 @@ class PipMpvPlayerTest {
         player.close()
 
         assertEquals(1, releaseCount)
+    }
+
+    @Test
+    fun forwardsNavigationHandlerRegistrationAndCleansUpOnClose() {
+        val controller = FakePictureInPictureController(
+            PictureInPictureAvailability.Available
+        )
+        val delegate = FakeNavigationPlayer()
+        val player = PipMpvPlayer(delegate, controller)
+        val handler = object : PlaybackNavigationHandler {
+            override fun onPrevious() = Unit
+            override fun onNext() = Unit
+        }
+
+        assertTrue(player.addNavigationHandler(handler))
+        assertFalse(player.addNavigationHandler(handler))
+        assertTrue(delegate.navigationHandler === handler)
+
+        assertTrue(player.removeNavigationHandler(handler))
+        assertFalse(player.removeNavigationHandler(handler))
+        assertTrue(delegate.navigationHandler == null)
+
+        assertTrue(player.addNavigationHandler(handler))
+        player.close()
+
+        assertTrue(delegate.navigationHandler == null)
+        assertFalse(player.addNavigationHandler(handler))
     }
 
     @Test
@@ -201,6 +229,54 @@ class PipMpvPlayerTest {
         coordinator.close()
     }
 
+    @Test
+    fun externalNavigationHandlerEnablesSingleItemPlayerNavigation() {
+        val mpv = FakeMpv()
+        val coordinator = PlaybackCoordinator(mpv = mpv)
+        assertTrue(coordinator.start())
+        val player = PlaybackCoordinatorMpvPlayer(
+            coordinator = coordinator,
+            videoOutput = object : MpvVideoOutput {},
+            scope = CoroutineScope(Job() + QueuedDispatcher())
+        )
+        var previousCount = 0
+        var nextCount = 0
+        val handler = object : PlaybackNavigationHandler {
+            override fun onPrevious() {
+                previousCount += 1
+            }
+
+            override fun onNext() {
+                nextCount += 1
+            }
+        }
+        assertEquals(
+            0,
+            player.load(PlaybackMetadata("only", "file:///only", "Only"))
+        )
+        assertFalse(player.canPrevious())
+        assertFalse(player.canNext())
+
+        assertTrue(player.addNavigationHandler(handler))
+
+        assertTrue(player.snapshot.value.canPrevious)
+        assertTrue(player.snapshot.value.canNext)
+        assertTrue(player.previous())
+        assertTrue(player.next())
+        assertEquals(1, previousCount)
+        assertEquals(1, nextCount)
+        assertEquals(0, mpv.playlistNextCount)
+
+        assertTrue(player.removeNavigationHandler(handler))
+        assertFalse(player.snapshot.value.canPrevious)
+        assertFalse(player.snapshot.value.canNext)
+        assertFalse(player.previous())
+        assertFalse(player.next())
+
+        player.close()
+        coordinator.close()
+    }
+
     private object FakePlayer : MpvPlayer {
         override val snapshot: StateFlow<MpvPlayerSnapshot> =
             MutableStateFlow(MpvPlayerSnapshot())
@@ -249,6 +325,25 @@ class PipMpvPlayerTest {
 
         override fun updateMetadata(metadata: PlaybackMetadata?) {
             updatedMetadata = metadata
+        }
+    }
+
+    private class FakeNavigationPlayer :
+        MpvPlayer by FakePlayer,
+        PlaybackNavigationController {
+        var navigationHandler: PlaybackNavigationHandler? = null
+            private set
+
+        override fun addNavigationHandler(handler: PlaybackNavigationHandler): Boolean {
+            if (navigationHandler != null) return false
+            navigationHandler = handler
+            return true
+        }
+
+        override fun removeNavigationHandler(handler: PlaybackNavigationHandler): Boolean {
+            if (navigationHandler !== handler) return false
+            navigationHandler = null
+            return true
         }
     }
 

@@ -254,27 +254,59 @@ class PlaybackCoordinatorTest {
     }
 
     @Test
-    fun navigationHandlerReceivesCommandsWithoutUsingMpvPlaylist() {
+    fun navigationHandlerCanBeAddedAndRemovedWithoutUsingMpvPlaylist() {
         val received = mutableListOf<MediaCommand>()
-        val fixture = Fixture(
-            navigationHandler = object : PlaybackNavigationHandler {
-                override fun onPrevious() {
-                    received += MediaCommand.Previous
-                }
-
-                override fun onNext() {
-                    received += MediaCommand.Next
-                }
+        val fixture = Fixture()
+        val handler = object : PlaybackNavigationHandler {
+            override fun onPrevious() {
+                received += MediaCommand.Previous
             }
-        )
+
+            override fun onNext() {
+                received += MediaCommand.Next
+            }
+        }
         fixture.coordinator.start()
 
+        assertTrue(fixture.coordinator.addNavigationHandler(handler))
+        assertFalse(fixture.coordinator.addNavigationHandler(handler))
         assertEquals(0, fixture.coordinator.execute(MediaCommand.Next))
         assertEquals(0, fixture.coordinator.execute(MediaCommand.Previous))
 
         assertEquals(listOf(MediaCommand.Next, MediaCommand.Previous), received)
         assertEquals(0, fixture.mpv.nextCount)
         assertEquals(0, fixture.mpv.previousCount)
+
+        assertTrue(fixture.coordinator.removeNavigationHandler(handler))
+        assertFalse(fixture.coordinator.removeNavigationHandler(handler))
+        assertEquals(0, fixture.coordinator.execute(MediaCommand.Next))
+        assertEquals(1, fixture.mpv.nextCount)
+        fixture.close()
+    }
+
+    @Test
+    fun secondNavigationHandlerIsRejectedUntilFirstIsRemoved() {
+        val fixture = Fixture()
+        var firstCount = 0
+        var secondCount = 0
+        val first = navigationHandler(onNext = { firstCount += 1 })
+        val second = navigationHandler(onNext = { secondCount += 1 })
+        fixture.coordinator.start()
+        assertTrue(fixture.coordinator.addNavigationHandler(first))
+        assertFalse(fixture.coordinator.addNavigationHandler(second))
+
+        assertEquals(0, fixture.coordinator.execute(MediaCommand.Next))
+
+        assertEquals(1, firstCount)
+        assertEquals(0, secondCount)
+        assertEquals(0, fixture.mpv.nextCount)
+
+        assertFalse(fixture.coordinator.removeNavigationHandler(second))
+        assertTrue(fixture.coordinator.removeNavigationHandler(first))
+        assertTrue(fixture.coordinator.addNavigationHandler(second))
+        assertEquals(0, fixture.coordinator.execute(MediaCommand.Next))
+        assertEquals(1, firstCount)
+        assertEquals(1, secondCount)
         fixture.close()
     }
 
@@ -282,16 +314,17 @@ class PlaybackCoordinatorTest {
     fun unavailableNavigationCommandDoesNotReachNavigationHandler() {
         var nextCount = 0
         val fixture = Fixture(
-            availableCommands = DEFAULT_MEDIA_COMMANDS - MediaCommandType.Next,
-            navigationHandler = object : PlaybackNavigationHandler {
-                override fun onPrevious() = Unit
-
-                override fun onNext() {
-                    nextCount += 1
-                }
-            }
+            availableCommands = DEFAULT_MEDIA_COMMANDS - MediaCommandType.Next
         )
+        val handler = object : PlaybackNavigationHandler {
+            override fun onPrevious() = Unit
+
+            override fun onNext() {
+                nextCount += 1
+            }
+        }
         fixture.coordinator.start()
+        fixture.coordinator.addNavigationHandler(handler)
 
         assertEquals(0, fixture.coordinator.execute(MediaCommand.Next))
 
@@ -537,8 +570,7 @@ class PlaybackCoordinatorTest {
     private class Fixture(
         availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
         stateStore: PlaybackStateStore? = null,
-        artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null,
-        navigationHandler: PlaybackNavigationHandler? = null
+        artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null
     ) {
         val mpv = FakeMpv()
         val integration = RecordingIntegration()
@@ -547,8 +579,7 @@ class PlaybackCoordinatorTest {
             mediaIntegration = integration,
             stateStore = stateStore,
             availableCommands = availableCommands,
-            artworkLoaderFactory = artworkLoaderFactory,
-            navigationHandler = navigationHandler
+            artworkLoaderFactory = artworkLoaderFactory
         )
 
         fun close() {
@@ -581,6 +612,14 @@ class PlaybackCoordinatorTest {
         override fun deactivate() {
             deactivateCount += 1
         }
+    }
+
+    private fun navigationHandler(
+        onPrevious: () -> Unit = {},
+        onNext: () -> Unit = {}
+    ): PlaybackNavigationHandler = object : PlaybackNavigationHandler {
+        override fun onPrevious() = onPrevious()
+        override fun onNext() = onNext()
     }
 
     private class FakeMpv : AbsMpv() {

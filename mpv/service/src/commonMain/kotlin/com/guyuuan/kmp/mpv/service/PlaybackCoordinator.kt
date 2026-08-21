@@ -33,8 +33,7 @@ class PlaybackCoordinator(
     private val stateStore: PlaybackStateStore? = null,
     availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
     artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null,
-    private val mpvConfig: MpvConfig = MpvConfig(),
-    private val navigationHandler: PlaybackNavigationHandler? = null
+    private val mpvConfig: MpvConfig = MpvConfig()
 ) : MediaCommandHandler {
     private enum class PendingQueueLoadPhase {
         AwaitingStart,
@@ -68,6 +67,8 @@ class PlaybackCoordinator(
     private var stopRequested = false
     private val pendingQueueLock = PlatformLock()
     private var pendingQueueLoad: PendingQueueLoad? = null
+    private val navigationHandlerLock = PlatformLock()
+    private var navigationHandler: PlaybackNavigationHandler? = null
     private var queue: List<PlaybackMetadata> = emptyList()
     private var persistenceJob: Job? = null
     private var restoring = false
@@ -169,6 +170,23 @@ class PlaybackCoordinator(
         publishSnapshot(snapshot.value.copy(availableCommands = commands.toSet()))
     }
 
+    /** Registers a semantic previous/next handler, returning false when already registered. */
+    fun addNavigationHandler(handler: PlaybackNavigationHandler): Boolean =
+        navigationHandlerLock.withLock {
+            check(!closed) { "PlaybackCoordinator is already closed" }
+            if (navigationHandler != null) return@withLock false
+            navigationHandler = handler
+            true
+        }
+
+    /** Removes a previously registered semantic previous/next handler. */
+    fun removeNavigationHandler(handler: PlaybackNavigationHandler): Boolean =
+        navigationHandlerLock.withLock {
+            if (navigationHandler !== handler) return@withLock false
+            navigationHandler = null
+            true
+        }
+
     override fun handle(command: MediaCommand) {
         execute(command)
     }
@@ -214,15 +232,15 @@ class PlaybackCoordinator(
                 player.seekTo(position / MILLIS_PER_SECOND)
             }
 
-            MediaCommand.Next -> navigationHandler?.let {
-                it.onNext()
-                COMMAND_ACCEPTED
-            } ?: player.playlistNext()
+            MediaCommand.Next -> dispatchNavigation(
+                invoke = PlaybackNavigationHandler::onNext,
+                fallback = player::playlistNext
+            )
 
-            MediaCommand.Previous -> navigationHandler?.let {
-                it.onPrevious()
-                COMMAND_ACCEPTED
-            } ?: player.playlistPrev()
+            MediaCommand.Previous -> dispatchNavigation(
+                invoke = PlaybackNavigationHandler::onPrevious,
+                fallback = player::playlistPrev
+            )
             is MediaCommand.SetSpeed -> player.setSpeed(command.speed)
             is MediaCommand.SetVolume -> player.setVolume(command.volume.toDouble())
             is MediaCommand.SetRepeatMode -> applyRepeatMode(command.repeatMode)
@@ -319,6 +337,7 @@ class PlaybackCoordinator(
         hasActiveFile = false
         stopRequested = false
         clearPendingQueueLoad()
+        navigationHandlerLock.withLock { navigationHandler = null }
         val disposed = snapshot.value.copy(
             metadata = null,
             status = PlaybackStatus.Disposed,
@@ -631,6 +650,16 @@ class PlaybackCoordinator(
     private fun ensureUsable() {
         check(started) { "PlaybackCoordinator has not been started" }
         check(!closed) { "PlaybackCoordinator is already closed" }
+    }
+
+    private fun dispatchNavigation(
+        invoke: PlaybackNavigationHandler.() -> Unit,
+        fallback: () -> Int
+    ): Int {
+        val handler = navigationHandlerLock.withLock { navigationHandler }
+            ?: return fallback()
+        handler.invoke()
+        return COMMAND_ACCEPTED
     }
 }
 

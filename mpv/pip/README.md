@@ -36,6 +36,24 @@ player.load(
 )
 ```
 
+应用自行维护相邻媒体、不使用 libmpv playlist 时，可通过 `PipMpvPlayer` 动态注册导航
+处理器。播放器只允许注册一个处理器，已有处理器时再次添加会返回 `false`。页面不再接收
+系统媒体命令时应移除处理器；`PipMpvPlayer.close()` 也会自动清理由该实例注册的处理器：
+
+```kotlin
+val navigationHandler = object : PlaybackNavigationHandler {
+    override fun onPrevious() = loadPreviousMedia()
+    override fun onNext() = loadNextMedia()
+}
+
+DisposableEffect(player, navigationHandler) {
+    player.addNavigationHandler(navigationHandler)
+    onDispose {
+        player.removeNavigationHandler(navigationHandler)
+    }
+}
+```
+
 不需要后台播放或 PiP 的应用应只依赖 `mpv/compose`，并使用
 `rememberMpvPlayer()`。两种入口都实现同一个 `MpvPlayer` 接口：
 
