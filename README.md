@@ -1,91 +1,29 @@
-This is a Kotlin Multiplatform project targeting Android, iOS, and Desktop (JVM).
+# mpv_kmp
 
-The project follows the updated Kotlin Multiplatform structure with separate modules for shared code and runnable app entry points:
+Kotlin Multiplatform bindings for [mpv](https://mpv.io/) (libmpv), targeting **Android, iOS, and Desktop (JVM)**.
 
-* [/mpv/core](./mpv/core/src) contains the reusable multiplatform libmpv interop layer.
-  Its Android target packages a Kotlin/Native JNI bridge for `arm64-v8a` and `x86_64` directly in the AAR.
-* [/mpv/compose](./mpv/compose) contains the Compose player state and platform video rendering controls.
-* [/mpv/service](./mpv/service) adds application-level playback ownership, platform media sessions, interruption handling, and playback restoration.
-* [/mpv/loader-coil](./mpv/loader-coil) resolves playback artwork URIs with Coil on Android, iOS, and Desktop (JVM).
-* [/example/shared](./example/shared/src) contains shared Compose UI for the sample app and exports the iOS framework.
-* [/example/androidApp](./example/androidApp/src) contains the Android application entry point and Android app configuration.
-* [/example/desktopApp](./example/desktopApp/src) contains the Desktop (JVM) application entry point and desktop packaging configuration.
-* [/iosApp](./iosApp/iosApp) contains the iOS application that consumes the framework produced by `example:shared`.
+## Modules
 
-### Build and Run Android Application
+| Module | Description |
+| --- | --- |
+| `mpv/core` | Reusable multiplatform libmpv interop layer; the Android target packages a Kotlin/Native JNI bridge for `arm64-v8a` and `x86_64` directly in the AAR. |
+| `mpv/compose` | Compose player state and platform video rendering controls. |
+| `mpv/service` | Application-level playback ownership, platform media sessions, and interruption handling. |
+| `mpv/pip` | Picture-in-picture integration. |
+| `mpv/loader-coil` | Playback artwork URI resolution with Coil on all platforms. |
+| `mpv-gradle-plugin` | Gradle plugin that wires native mpv/FFmpeg libraries into Desktop and iOS consumers. |
 
-To build and run the development version of the Android app, use the run configuration from the run widget
-in your IDE’s toolbar or build it directly from the terminal:
-- on macOS/Linux
-  ```shell
-  ./gradlew :example:androidApp:assembleDebug
-  ```
-- on Windows
-  ```shell
-  .\gradlew.bat :example:androidApp:assembleDebug
-  ```
+Sample apps live in `example/` (shared Compose UI, Android, Desktop) and `iosApp/` (iOS).
 
-### Build and Run Desktop (JVM) Application
+## Getting started
 
-To build and run the development version of the desktop app, use the run configuration from the run widget
-in your IDE’s toolbar or run it directly from the terminal:
-- on macOS/Linux
-  ```shell
-  ./gradlew :example:desktopApp:run
-  ```
-- on Windows
-  ```shell
-  .\gradlew.bat :example:desktopApp:run
-  ```
+- **Android**: `./gradlew :example:androidApp:assembleDebug`
+- **Desktop (JVM)**: `./gradlew :example:desktopApp:run`
+- **iOS**: open `iosApp` in Xcode and run from there
 
-### Desktop native library integration for Compose Multiplatform consumers
+(On Windows use `.\gradlew.bat …`.)
 
-Compose Desktop consumers should apply the Gradle plugin in the desktop application module. The plugin extracts
-the current host's mpv native libraries, passes the directory to `run`, and adds the same files to Compose Desktop
-application resources for native distributions.
-
-```kotlin
-plugins {
-    id("com.guyuuan.kmp.mpv") version "<version>"
-}
-
-dependencies {
-    implementation("com.guyuuan.kmp.mpv:core:<version>")
-}
-```
-
-The Gradle plugin JAR and the regular JVM library JAR are code-only. Native libraries are published separately as
-`jvm-<os>-<arch>-native-libs` ZIP classifiers; the plugin resolves only the current build host's classifier from the
-same dependency repositories used by the application. This avoids downloading every desktop platform for each
-consumer.
-
-The JVM runtime loads native libraries in this order:
-
-1. `-Dmpv.kmp.native.dir=<dir>` provided by the plugin or by the application.
-2. Compose Desktop app resources under `mpv-kmp/<platform>`.
-3. Resources from legacy `mpv` JARs as a compatibility fallback.
-4. The system `mpv` library as a final fallback.
-
-Set `mpvKmp.desktopNativeDirectoryOverride` when an app wants to use externally built native libraries instead
-of the plugin-bundled resources.
-
-### Logging
-
-The library writes diagnostic output through [Kermit](https://kermit.touchlab.co/). Kermit's default
-platform logger works without application-side initialization. Applications that need custom filtering or log
-writers can add Kermit as a direct dependency and configure its global `Logger` before creating a player.
-
-### Build and Run iOS Application
-
-To build and run the development version of the iOS app, use the run configuration from the run widget
-in your IDE’s toolbar or open the [/iosApp](./iosApp) directory in Xcode and run it from there.
-
-### iOS dylib integration for KMP consumers
-
-KMP consumers should use the Gradle plugin together with the `mpv` dependency. The plugin resolves the separate
-`ios-native-libs` ZIP, links the final iOS framework against `libmpv.dylib`, and embeds/signs the mpv and FFmpeg
-dylibs during the Xcode framework build phase. The plugin's main JAR therefore does not make Android- or
-desktop-only consumers download iOS binaries.
+## Using the library
 
 ```kotlin
 plugins {
@@ -101,60 +39,39 @@ kotlin {
 }
 ```
 
-Use the plugin task from the iOS app target's Kotlin framework Run Script phase:
+**Desktop**: the plugin extracts the host's mpv native libraries, passes the directory to `run`, and bundles them into Compose Desktop app resources. Runtime search order: `-Dmpv.kmp.native.dir` → Compose resources (`mpv-kmp/<platform>`) → legacy `mpv` JARs → system mpv. Override with `mpvKmp.desktopNativeDirectoryOverride`.
+
+**iOS**: the plugin resolves the `ios-native-libs` ZIP, links the framework against `libmpv.dylib`, and embeds/signs the mpv & FFmpeg dylibs. Add to the Kotlin framework Run Script phase:
 
 ```sh
-cd "$SRCROOT/.."
 ./gradlew :shared:mpvKmpEmbedAndSignAppleFrameworkForXcode
 ```
 
-The task expects the usual Xcode build environment variables such as `PLATFORM_NAME`,
-`TARGET_BUILD_DIR`, `FRAMEWORKS_FOLDER_PATH`, `CONFIGURATION`, and the code-signing identity. It copies
-the Kotlin framework and the required `lib*.dylib` files into `App.app/Frameworks` and signs them when
-code signing is enabled.
+## Maven Central
 
-The published iOS native libraries include `iphoneos/arm64` and `iphonesimulator/arm64`. Rebuild the simulator
-bundle with:
+Published under group `com.guyuuan.kmp.mpv`:
 
-```sh
-./buildscripts/buildall.sh --platform ios --arch arm64-simulator mpv
-```
-
-### Native library size and Android ABI packaging
-
-Release native builds use size optimization, link-time optimization, and symbol stripping. FFmpeg is built without
-debug data, command-line programs, documentation, `libavdevice`, or device I/O support; playback formats, network
-protocols, decoders, and filters otherwise remain available. The final resource-copy step strips each shared library
-again and removes duplicate Windows mpv DLL names.
-
-The Android library AAR still exposes both supported ABIs (`arm64-v8a` and `x86_64`). The example application
-produces one APK per ABI and keeps ABI splitting enabled for Android App Bundles, so an installed APK does not carry
-both native-library sets. Applications consuming the library should use the same `splits.abi` configuration when
-publishing standalone APKs; Play-generated APKs from an AAB are ABI-specific.
-
-### Maven Central
-
-Published library modules use the `com.guyuuan.kmp.mpv` group:
-
-| Module | Root artifact |
+| Module | Artifact |
 | --- | --- |
-| Core player bindings | `com.guyuuan.kmp.mpv:core:<version>` |
-| Compose integration | `com.guyuuan.kmp.mpv:compose:<version>` |
-| Playback service | `com.guyuuan.kmp.mpv:service:<version>` |
-| Picture-in-picture integration | `com.guyuuan.kmp.mpv:pip:<version>` |
-| Coil artwork loader | `com.guyuuan.kmp.mpv:loader-coil:<version>` |
+| Core player bindings | `com.guyuuan.kmp.mpv:core` |
+| Compose integration | `com.guyuuan.kmp.mpv:compose` |
+| Playback service | `com.guyuuan.kmp.mpv:service` |
+| Picture-in-picture | `com.guyuuan.kmp.mpv:pip` |
+| Coil artwork loader | `com.guyuuan.kmp.mpv:loader-coil` |
+| Gradle plugin | `com.guyuuan.kmp.mpv:mpv-gradle-plugin` |
 
-Published Kotlin APIs use the `com.guyuuan.kmp.mpv` package. The Gradle
-integration uses the matching `com.guyuuan.kmp.mpv` plugin ID and publishes its
-implementation as `com.guyuuan.kmp.mpv:mpv-gradle-plugin:<version>`.
+Kotlin APIs use the `com.guyuuan.kmp.mpv` package; platform artifacts (`core-android`, `core-jvm`, `core-iosarm64`, …) are resolved automatically from the root module metadata.
 
-Kotlin Multiplatform resolves the platform-specific artifacts such as `core-android`, `core-jvm`, and
-`core-iosarm64` from the root module metadata.
+## Logging
 
----
+Diagnostics go through [Kermit](https://kermit.touchlab.co/). The default platform logger works without setup; add Kermit as a direct dependency to configure custom log writers before creating a player.
 
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
+## Notes
+
+- Release native builds use size optimization, LTO, and symbol stripping; FFmpeg omits debug data, CLI programs, docs, `libavdevice`, and device I/O support.
+- The Android AAR ships `arm64-v8a` and `x86_64`; use `splits.abi` (as the example does) so each APK carries only one ABI set.
+- iOS native libraries include `iphoneos/arm64` and `iphonesimulator/arm64`; rebuild the simulator bundle with `./buildscripts/buildall.sh --platform ios --arch arm64-simulator mpv`.
 
 ## License
 
-This project is licensed under the [Apache License 2.0](./LICENSE).
+[Apache License 2.0](./LICENSE)
