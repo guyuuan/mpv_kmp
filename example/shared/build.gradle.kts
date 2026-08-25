@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.mpv)
@@ -40,8 +41,15 @@ kotlin {
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.material.iconsExtended)
-            val devMode = properties["devMode"]
-            if(devMode == "dev"){
+            val localProperties = Properties().apply {
+                val file = rootProject.file("local.properties")
+                if (file.exists()) {
+                    file.inputStream().use(::load)
+                }
+            }
+            val devMode = localProperties["devMode"]
+            logger.warn("dev mode: $devMode")
+            if(devMode == "release"){
                 api(libs.mpv.pip)
                 api(libs.mpv.coil)
             }else{
