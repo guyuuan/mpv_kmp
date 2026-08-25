@@ -1,12 +1,14 @@
 package com.guyuuan.kmp.mpv.service
 
 import android.content.Context
+import android.content.Intent
 import androidx.media3.common.util.UnstableApi
 import com.guyuuan.kmp.mpv.config.MpvConfig
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlin.concurrent.Volatile
 
 /**
@@ -74,10 +76,37 @@ object AndroidPlaybackCoordinatorOwner {
                 PlaybackCoordinator(
                     mpvConfig = mpvConfig,
                     mediaIntegration = mediaIntegration,
-                    stateStore = AndroidPlaybackStateStore(context)
                 )
             }
         ).coordinator
+
+    /**
+     * Terminates process-wide playback and requests that its MediaSessionService stop.
+     *
+     * The installed factory is retained so a later player can create a fresh coordinator.
+     */
+    fun close(context: Context) {
+        var cleanupFailure: Throwable? = null
+        try {
+            synchronized(lock) {
+                playback?.let { ownedPlayback ->
+                    try {
+                        ownedPlayback.interruptionManager.stop()
+                        ownedPlayback.interruptionScope.cancel()
+                        ownedPlayback.coordinator.close()
+                    } finally {
+                        playback = null
+                    }
+                }
+            }
+        } catch (error: Throwable) {
+            cleanupFailure = error
+        }
+        context.applicationContext.stopService(
+            Intent(context.applicationContext, MpvMediaSessionService::class.java)
+        )
+        cleanupFailure?.let { throw it }
+    }
 
     internal fun acquire(
         context: Context,
@@ -114,7 +143,6 @@ object AndroidPlaybackCoordinatorOwner {
             scope = interruptionScope
         )
         interruptionManager.start()
-        coordinator.restoreSavedPlayback()
         return OwnedPlayback(
             coordinator = coordinator,
             mediaIntegration = mediaIntegration,

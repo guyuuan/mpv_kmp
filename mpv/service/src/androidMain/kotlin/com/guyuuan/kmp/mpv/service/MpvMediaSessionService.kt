@@ -21,8 +21,7 @@ open class MpvMediaSessionService : MediaSessionService() {
         mediaIntegration: PlatformMediaIntegration
     ): PlaybackCoordinator =
         PlaybackCoordinator(
-            mediaIntegration = mediaIntegration,
-            stateStore = AndroidPlaybackStateStore(this)
+            mediaIntegration = mediaIntegration
         )
 
     protected fun playbackCoordinator(): PlaybackCoordinator =
@@ -49,7 +48,6 @@ open class MpvMediaSessionService : MediaSessionService() {
         mediaSession
 
     override fun onDestroy() {
-        coordinator?.persistPlaybackState()
         mediaSession?.release()
         mediaSession = null
         coordinator = null

@@ -13,7 +13,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import com.guyuuan.kmp.mpv.config.MpvConfig
 import com.guyuuan.kmp.mpv.service.AndroidPlaybackCoordinatorOwner
-import com.guyuuan.kmp.mpv.service.AndroidPlaybackStateStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -63,6 +62,7 @@ actual fun rememberPipMpvPlayer(config: MpvConfig): PipMpvPlayer {
                 videoOutput.close()
                 mediaSessionConnection.close()
                 pipController.close()
+                AndroidPlaybackCoordinatorOwner.close(context)
             }
         )
     }
@@ -87,10 +87,9 @@ actual fun rememberPipMpvPlayer(config: MpvConfig): PipMpvPlayer {
 internal actual fun installPlatformPipPlaybackConfiguration(
     configuration: PipPlaybackConfiguration
 ) {
-    AndroidPlaybackCoordinatorOwner.configure { context, mediaIntegration ->
+    AndroidPlaybackCoordinatorOwner.configure { _, mediaIntegration ->
         configuration.createCoordinator(
-            mediaIntegration = mediaIntegration,
-            defaultStateStore = AndroidPlaybackStateStore(context)
+            mediaIntegration = mediaIntegration
         )
     }
 }

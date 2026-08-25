@@ -10,7 +10,6 @@ Android 之外没有与 `MediaSessionService` 完全同构的统一 API。各平
 2. 系统媒体信息展示；
 3. 锁屏、耳机、键盘和系统面板的播放控制；
 4. 音频焦点、中断和输出设备变化处理；
-5. 播放状态持久化与恢复。
 
 在当前项目中，不建议在 `commonMain` 抽象一个名为 `Service` 的平台对象。更合适的方案是让公共层提供与生命周期无关的播放器所有者和媒体会话协调器，各平台分别实现自己的后台策略与系统媒体桥接。
 
@@ -36,7 +35,7 @@ Android 之外没有与 `MediaSessionService` 完全同构的统一 API。各平
 
 ## Android
 
-Android Media3 官方建议把 `Player` 和 `MediaSession` 一起放进 `MediaSessionService`。该服务可与系统媒体控件、蓝牙设备、Android Auto、Wear OS 或应用内 `MediaController` 连接，并根据会话状态维护媒体通知。它也支持在服务或设备重启后实现播放恢复。
+Android Media3 官方建议把 `Player` 和 `MediaSession` 一起放进 `MediaSessionService`。该服务可与系统媒体控件、蓝牙设备、Android Auto、Wear OS 或应用内 `MediaController` 连接，并根据会话状态维护媒体通知。
 
 本项目使用 libmpv，并没有实现 `androidx.media3.common.Player`，因此不能直接把现有 `MpvPlayer` 交给 `MediaSession.Builder`。推荐增加一个 Android 专用适配器：
 
@@ -70,7 +69,7 @@ iOS 不允许应用创建 Android 式的任意常驻后台服务。媒体应用�
 4. 使用 `MPRemoteCommandCenter` 接收播放、暂停、上一首、下一首和跳转命令；
 5. 监听音频中断与输出路由变化，在电话、Siri、耳机断开等情况下暂停或恢复。
 
-这里的“后台运行”只服务于有效的媒体播放场景，并不赋予应用无限制保活能力。播放结束或长时间暂停后，应假设应用可能被挂起或终止，并持久化队列、媒体标识、进度、速度和暂停状态。
+这里的“后台运行”只服务于有效的媒体播放场景，并不赋予应用无限制保活能力。播放结束或长时间暂停后，应假设应用可能被挂起或终止。
 
 在 KMP 中可以在 `iosMain` 直接调用 Apple Framework，也可以让 Swift 宿主实现一个很薄的桥。播放器应由应用级对象持有，而不是由某个 Compose 页面持有。
 
@@ -211,14 +210,6 @@ interface PlatformMediaIntegration {
 - artwork 异步加载时保留 media ID，避免旧请求覆盖新媒体；
 - 停止或销毁时注销系统回调、清空媒体信息并释放原生资源。
 
-### 5. 播放恢复
-
-持久化最少状态：播放队列、当前索引、媒体 ID/URI、位置、速度、循环模式、暂停状态和必要元数据。
-
-- Android 接到 Media3 playback resumption 回调后恢复；
-- iOS 在应用重新启动后由用户操作恢复，不假设被终止后仍有后台进程；
-- Desktop 可在下次启动时恢复，或在独立用户态播放进程仍存活时通过 IPC 重连。
-
 ## 推荐实施顺序
 
 1. 将 `MpvPlayer` 的所有权从 Compose 页面移到平台级 coordinator，并保持现有 UI API 可用；
@@ -228,7 +219,7 @@ interface PlatformMediaIntegration {
 5. macOS 实现 MediaPlayer Framework 原生桥；
 6. Windows 实现 WinRT SMTC 原生桥；
 7. Linux 实现 MPRIS；
-8. 最后统一加入播放恢复和跨平台行为测试。
+8. 最后统一加入跨平台行为测试。
 
 ## 验收清单
 
@@ -238,7 +229,7 @@ interface PlatformMediaIntegration {
 - 来电、音频焦点丢失、输出设备断开时行为正确；
 - 系统命令与应用内 UI 不产生双向循环或状态抖动；
 - 关闭窗口、退出应用、进程终止三种行为在 Desktop 上定义清楚；
-- 进程被系统终止后不会假装仍在播放，并能按平台能力恢复；
+- 进程被系统终止后不会假装仍在播放；
 - 多次创建/销毁集成对象不会留下重复回调、D-Bus 名称或原生资源。
 
 ## 最终建议

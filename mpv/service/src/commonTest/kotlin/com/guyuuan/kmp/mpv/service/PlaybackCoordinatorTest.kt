@@ -152,6 +152,27 @@ class PlaybackCoordinatorTest {
     }
 
     @Test
+    fun successfulStopClearsPublishedMediaInformation() {
+        val fixture = Fixture()
+        fixture.coordinator.start()
+        val metadata = PlaybackMetadata(
+            mediaId = "episode-1",
+            uri = "https://example.test/episode.mp3",
+            title = "Episode 1"
+        )
+        fixture.coordinator.load(metadata)
+
+        assertEquals(0, fixture.coordinator.execute(MediaCommand.Stop))
+
+        assertNull(fixture.coordinator.snapshot.value.metadata)
+        assertEquals(PlaybackStatus.Stopped, fixture.coordinator.snapshot.value.status)
+        assertFalse(fixture.coordinator.snapshot.value.playWhenReady)
+        assertNull(fixture.integration.metadata.last())
+        assertEquals(listOf(metadata), fixture.coordinator.queueItems)
+        fixture.close()
+    }
+
+    @Test
     fun pauseDuringQueueLoadingOverridesAutoPlay() {
         val fixture = Fixture()
         fixture.coordinator.start()
@@ -360,45 +381,6 @@ class PlaybackCoordinatorTest {
     }
 
     @Test
-    fun restoresQueueAndPlaybackSettingsWithoutAutoPlaying() {
-        val first = PlaybackMetadata("first", "file:///first.mp3", "First")
-        val second = PlaybackMetadata("second", "file:///second.mp3", "Second")
-        val third = PlaybackMetadata("third", "file:///third.mp3", "Third")
-        val store = InMemoryPlaybackStateStore(
-            RestorablePlaybackState(
-                queue = listOf(first, second, third),
-                currentIndex = 1,
-                positionMillis = 45_000,
-                speed = 1.25f,
-                repeatMode = PlaybackRepeatMode.All,
-                shuffleEnabled = true,
-                paused = false
-            )
-        )
-        val fixture = Fixture(stateStore = store)
-        fixture.coordinator.start()
-
-        assertTrue(fixture.coordinator.restoreSavedPlayback())
-
-        assertEquals(second.uri, fixture.mpv.loadedUri)
-        assertEquals(
-            listOf(first.uri to 0, third.uri to null),
-            fixture.mpv.addedItems
-        )
-        assertEquals(listOf(first.uri, second.uri, third.uri), fixture.mpv.playlistUris)
-        assertEquals(45.0, fixture.mpv.seekPosition)
-        assertEquals("1.25", fixture.mpv.properties[MpvPlaybackProperties.SPEED])
-        assertEquals("inf", fixture.mpv.properties["loop-playlist"])
-        assertEquals(listOf("playlist-shuffle"), fixture.mpv.commands)
-        assertEquals(second, fixture.coordinator.snapshot.value.metadata)
-        assertEquals(1, fixture.coordinator.snapshot.value.queueIndex)
-        assertEquals(3, fixture.coordinator.snapshot.value.queueSize)
-        assertEquals(0, fixture.mpv.playCount)
-        assertTrue(fixture.mpv.pauseCount > 0)
-        fixture.close()
-    }
-
-    @Test
     fun unavailableSystemCommandIsIgnored() {
         val fixture = Fixture(availableCommands = setOf(MediaCommandType.Play))
         fixture.coordinator.start()
@@ -595,7 +577,6 @@ class PlaybackCoordinatorTest {
 
     private class Fixture(
         availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
-        stateStore: PlaybackStateStore? = null,
         artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null
     ) {
         val mpv = FakeMpv()
@@ -603,7 +584,6 @@ class PlaybackCoordinatorTest {
         val coordinator = PlaybackCoordinator(
             mpv = mpv,
             mediaIntegration = integration,
-            stateStore = stateStore,
             availableCommands = availableCommands,
             artworkLoaderFactory = artworkLoaderFactory
         )

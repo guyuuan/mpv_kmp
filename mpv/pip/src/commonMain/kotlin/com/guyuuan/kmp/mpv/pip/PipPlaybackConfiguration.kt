@@ -6,7 +6,6 @@ import com.guyuuan.kmp.mpv.service.MediaCommandType
 import com.guyuuan.kmp.mpv.service.PlatformMediaIntegration
 import com.guyuuan.kmp.mpv.service.PlaybackArtworkLoaderFactory
 import com.guyuuan.kmp.mpv.service.PlaybackCoordinator
-import com.guyuuan.kmp.mpv.service.PlaybackStateStore
 
 /**
  * Application-level configuration used when the platform creates its process-wide PiP playback
@@ -50,12 +49,10 @@ class PipPlaybackConfiguration private constructor(
     }
 
     internal fun createCoordinator(
-        mediaIntegration: PlatformMediaIntegration,
-        defaultStateStore: PlaybackStateStore?
+        mediaIntegration: PlatformMediaIntegration
     ): PlaybackCoordinator {
         val environment = PipPlaybackCoordinatorEnvironment(
             mediaIntegration = mediaIntegration,
-            defaultStateStore = defaultStateStore,
             mpvConfig = mpvConfig,
             artworkLoaderFactory = artworkLoaderFactory,
             availableCommands = availableCommands
@@ -83,7 +80,6 @@ fun interface PipPlaybackCoordinatorFactory {
  */
 class PipPlaybackCoordinatorEnvironment internal constructor(
     val mediaIntegration: PlatformMediaIntegration,
-    val defaultStateStore: PlaybackStateStore?,
     val mpvConfig: MpvConfig,
     val artworkLoaderFactory: PlaybackArtworkLoaderFactory?,
     availableCommands: Set<MediaCommandType>
@@ -94,7 +90,6 @@ class PipPlaybackCoordinatorEnvironment internal constructor(
     fun createDefault(): PlaybackCoordinator = PlaybackCoordinator(
         mpvConfig = mpvConfig,
         mediaIntegration = mediaIntegration,
-        stateStore = defaultStateStore,
         availableCommands = availableCommands,
         artworkLoaderFactory = artworkLoaderFactory
     )

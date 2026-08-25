@@ -190,20 +190,3 @@ data class PlaybackSnapshot(
 }
 
 val DEFAULT_MEDIA_COMMANDS: Set<MediaCommandType> = MediaCommandType.entries.toSet()
-
-data class RestorablePlaybackState(
-    val queue: List<PlaybackMetadata>,
-    val currentIndex: Int,
-    val positionMillis: Long,
-    val speed: Float,
-    val repeatMode: PlaybackRepeatMode,
-    val shuffleEnabled: Boolean,
-    val paused: Boolean
-) {
-    init {
-        require(queue.isNotEmpty()) { "A restorable queue must not be empty" }
-        require(currentIndex in queue.indices) { "Current index must point to a queue item" }
-        require(positionMillis >= 0) { "Restored position must not be negative" }
-        require(speed in 0.01f..100f) { "Restored speed must be between 0.01 and 100" }
-    }
-}

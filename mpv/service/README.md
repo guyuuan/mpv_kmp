@@ -1,6 +1,6 @@
 # mpv/service
 
-`mpv/service` 在 `mpv/core` 之上统一播放器所有权、媒体语义、系统命令和播放恢复，同时保留各平台不同的后台机制。设计依据见仓库中的[跨平台后台媒体播放方案调研](../../service/README.md)。
+`mpv/service` 在 `mpv/core` 之上统一播放器所有权、媒体语义和系统命令，同时保留各平台不同的后台机制。设计依据见仓库中的[跨平台后台媒体播放方案调研](../../service/README.md)。
 
 ## 公共层
 
@@ -17,7 +17,6 @@ commonMain.dependencies {
 ```kotlin
 val coordinator = PlaybackCoordinator(
     mediaIntegration = platformMediaIntegration,
-    stateStore = platformStateStore,
     artworkLoaderFactory = PlaybackArtworkLoaderFactory {
         object : AbstractPlaybackArtworkLoader() {
             override suspend fun loadBytes(artwork: PlaybackArtwork.Uri): ByteArray? =
@@ -29,7 +28,6 @@ val coordinator = PlaybackCoordinator(
 )
 
 check(coordinator.start())
-coordinator.restoreSavedPlayback()
 coordinator.setQueue(
     items = listOf(
         PlaybackMetadata(
@@ -83,7 +81,7 @@ coordinator.removeNavigationHandler(navigationHandler)
 `PlaybackArtworkLoaderFactory` 为每个 `PlaybackCoordinator` 创建且只创建一个 loader。
 `AbstractPlaybackArtworkLoader` 位于 `commonMain`，统一实现异步调度、取消旧请求、过期结果
 过滤和异常回退，应用只需实现 `loadBytes()`。它不缓存历史封面：切换媒体时旧请求和引用
-立即释放，返回的编码图片字节只发布给平台媒体集成，不会替换公开 snapshot 或持久化队列
+立即释放，返回的编码图片字节只发布给平台媒体集成，不会替换公开 snapshot 或播放队列
 中的原始 URI。模块本身不绑定 HTTP 客户端；应用既可以在 `commonMain` 复用网络实现，
 也可以在 `androidMain`、`iosMain` 或 `jvmMain` 中处理鉴权和私有 URI。返回 `null`、空数组
 或抛出普通加载异常时继续使用原始 URI。
@@ -92,9 +90,7 @@ coordinator.removeNavigationHandler(navigationHandler)
 `CoilPlaybackArtworkLoader` 及对应 Factory，并内置 Android、Darwin 和 JVM 的 Ktor3
 网络引擎；具体创建方式见 [`mpv/service-coil/README.md`](../service-coil/README.md)。
 
-`DesktopPlaybackStateStore` 使用对应系统的用户数据目录和原子文件替换，不受 Java Preferences 单值大小限制。
-
-在真正退出平台级所有者时调用 `coordinator.close()`。队列、索引、位置、速度、循环、随机和暂停状态会先写入配置的 `PlaybackStateStore`；定期状态变化也会以 1 秒防抖保存。默认恢复不会自动播放，只有用户明确允许时才调用 `restoreSavedPlayback(resumePlayback = true)`。
+在真正退出平台级所有者时调用 `coordinator.close()`。coordinator 不会持久化或恢复播放队列和播放状态。
 
 ## Android
 
@@ -120,18 +116,17 @@ Android 端要求：
 ```kotlin
 PlaybackCoordinator(
     mediaIntegration = IosNowPlayingMediaIntegration(),
-    stateStore = IosPlaybackStateStore(),
     artworkLoaderFactory = customArtworkLoaderFactory
 )
 ```
 
 `IosNowPlayingMediaIntegration` 管理 `AVAudioSession`、Now Playing、远程命令、音频中断和输出路由变化。公共 loader 将网络或私有 URI 解析成字节后，iOS 集成负责转换为 `UIImage`。原有 `IosArtworkLoader` 构造参数暂时保留用于源码兼容，但已弃用；新代码应统一向 `PlaybackCoordinator` 注入 `PlaybackArtworkLoaderFactory`。
 
-宿主还必须在 Xcode 的 Background Modes 中启用 **Audio, AirPlay, and Picture in Picture**。iOS 被终止后不会继续运行；重启时应先展示恢复入口，再由用户操作决定是否播放。
+宿主还必须在 Xcode 的 Background Modes 中启用 **Audio, AirPlay, and Picture in Picture**。iOS 被终止后不会继续运行。
 
 ## Desktop JVM
 
-桌面端在应用级作用域创建集成和状态存储：
+桌面端在应用级作用域创建集成：
 
 ```kotlin
 val config = DesktopMediaIntegrationConfig(
@@ -141,8 +136,7 @@ val config = DesktopMediaIntegrationConfig(
     nativeWindowHandle = windowsHwnd
 )
 val coordinator = PlaybackCoordinator(
-    mediaIntegration = createDesktopMediaIntegration(config),
-    stateStore = DesktopPlaybackStateStore(config.applicationId)
+    mediaIntegration = createDesktopMediaIntegration(config)
 )
 ```
 

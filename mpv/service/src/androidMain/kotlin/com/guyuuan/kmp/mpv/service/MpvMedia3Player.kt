@@ -120,11 +120,13 @@ class MpvMedia3Player(
         }
 
         val publishedMetadata = snapshot.metadata
-        val queue = coordinator?.queueItems.orEmpty().ifEmpty {
-            publishedMetadata?.let(::listOf).orEmpty()
-        }.map { metadata ->
-            publishedMetadata?.takeIf { it.mediaId == metadata.mediaId } ?: metadata
-        }
+        val queue = publishedMetadata?.let { currentMetadata ->
+            coordinator?.queueItems.orEmpty().ifEmpty {
+                listOf(currentMetadata)
+            }.map { metadata ->
+                currentMetadata.takeIf { it.mediaId == metadata.mediaId } ?: metadata
+            }
+        }.orEmpty()
         if (queue.isNotEmpty()) {
             val currentIndex = snapshot.queueIndex?.takeIf { it in queue.indices } ?: 0
             builder

@@ -13,7 +13,6 @@ import com.guyuuan.kmp.mpv.IosMpvVideoOutput
 import com.guyuuan.kmp.mpv.IosRenderContextSupport
 import com.guyuuan.kmp.mpv.config.MpvConfig
 import com.guyuuan.kmp.mpv.service.IosNowPlayingMediaIntegration
-import com.guyuuan.kmp.mpv.service.IosPlaybackStateStore
 import com.guyuuan.kmp.mpv.service.MediaCommand
 import com.guyuuan.kmp.mpv.service.PlaybackCoordinator
 import com.guyuuan.kmp.mpv.service.PlaybackSnapshot
@@ -85,6 +84,7 @@ actual fun rememberPipMpvPlayer(config: MpvConfig): PipMpvPlayer {
             release = {
                 mediaPlayer.close()
                 videoOutput.close()
+                IosPipPlaybackOwner.close()
             }
         )
     }
@@ -104,8 +104,7 @@ private object IosPipPlaybackOwner {
         lock.withLock {
             coordinatorInstance ?: (configuration ?: PipPlaybackConfiguration.default(mpvConfig))
                 .createCoordinator(
-                    mediaIntegration = IosNowPlayingMediaIntegration(),
-                    defaultStateStore = IosPlaybackStateStore()
+                    mediaIntegration = IosNowPlayingMediaIntegration()
                 )
                 .also { coordinator ->
                     coordinator.start()
@@ -122,6 +121,16 @@ private object IosPipPlaybackOwner {
                 "iOS PiP playback is already configured"
             }
             this.configuration = configuration
+        }
+    }
+
+    fun close() {
+        lock.withLock {
+            try {
+                coordinatorInstance?.close()
+            } finally {
+                coordinatorInstance = null
+            }
         }
     }
 }

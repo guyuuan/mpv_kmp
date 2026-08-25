@@ -129,8 +129,7 @@ override fun onCreate() {
 都会抛出异常。只要全局配置已经完成安装，Android 的媒体服务即使先于 Compose 页面创建，
 也会使用这里的 `mpvConfig`。需要替换 Coordinator 创建
 逻辑时，可设置 `coordinatorFactory`，并优先使用
-`PipPlaybackCoordinatorEnvironment.createDefault()` 保留平台媒体集成、默认状态存储、
-命令集合与封面加载器。
+`PipPlaybackCoordinatorEnvironment.createDefault()` 保留平台媒体集成、命令集合与封面加载器。
 
 ## iOS 宿主配置
 

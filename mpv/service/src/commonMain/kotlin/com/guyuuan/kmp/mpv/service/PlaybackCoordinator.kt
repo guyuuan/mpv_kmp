@@ -11,10 +11,8 @@ import com.guyuuan.kmp.mpv.util.PlatformLock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,7 +28,6 @@ import kotlinx.coroutines.launch
 class PlaybackCoordinator(
     mpv: Mpv? = null,
     private val mediaIntegration: PlatformMediaIntegration = NoopPlatformMediaIntegration,
-    private val stateStore: PlaybackStateStore? = null,
     availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
     artworkLoaderFactory: PlaybackArtworkLoaderFactory? = null,
     private val mpvConfig: MpvConfig = MpvConfig()
@@ -70,8 +67,6 @@ class PlaybackCoordinator(
     private val navigationHandlerLock = PlatformLock()
     private var navigationHandler: PlaybackNavigationHandler? = null
     private var queue: List<PlaybackMetadata> = emptyList()
-    private var persistenceJob: Job? = null
-    private var restoring = false
 
     private val eventListener: (MpvEvent) -> Unit = { event -> handleMpvEvent(event) }
 
@@ -272,7 +267,16 @@ class PlaybackCoordinator(
         }
 
         if (result >= 0) {
-            if (requestedPlayWhenReady != null) {
+            if (command == MediaCommand.Stop) {
+                publishSnapshot(
+                    snapshot.value.copy(
+                        metadata = null,
+                        status = PlaybackStatus.Stopped,
+                        playWhenReady = false
+                    )
+                )
+                publishMetadata(null)
+            } else if (requestedPlayWhenReady != null) {
                 publishSnapshot(
                     snapshot.value.copy(playWhenReady = requestedPlayWhenReady)
                 )
@@ -292,56 +296,11 @@ class PlaybackCoordinator(
         return result
     }
 
-    /** Saves a restorable snapshot immediately, if a state store and queue are available. */
-    fun persistPlaybackState(): Boolean {
-        val state = captureRestorableState() ?: return false
-        val store = stateStore ?: return false
-        return runCatching { store.save(state) }.isSuccess
-    }
-
-    fun clearSavedPlaybackState() {
-        stateStore?.let { store -> runCatching(store::clear) }
-    }
-
-    /** Restores a previously saved queue without auto-playing unless explicitly requested. */
-    fun restoreSavedPlayback(resumePlayback: Boolean = false): Boolean {
-        ensureUsable()
-        val store = stateStore ?: return false
-        val state = runCatching(store::load).getOrNull() ?: return false
-        return restore(state, resumePlayback)
-    }
-
-    fun restore(state: RestorablePlaybackState, resumePlayback: Boolean = false): Boolean {
-        ensureUsable()
-        restoring = true
-        return try {
-            var result = setQueue(
-                items = state.queue,
-                currentIndex = state.currentIndex,
-                playWhenReady = resumePlayback && !state.paused
-            )
-            result = result.firstErrorOr(player.seekTo(state.positionMillis / MILLIS_PER_SECOND))
-            result = result.firstErrorOr(player.setSpeed(state.speed))
-            result = result.firstErrorOr(applyRepeatMode(state.repeatMode))
-            result = result.firstErrorOr(applyShuffle(state.shuffleEnabled))
-            if (!resumePlayback || state.paused) {
-                result = result.firstErrorOr(player.pause())
-            }
-            if (result < 0) publishSnapshot(snapshot.value.copy(status = PlaybackStatus.Error))
-            result >= 0
-        } finally {
-            restoring = false
-            schedulePersistence()
-        }
-    }
-
     /**
      * Disconnects system callbacks and terminates the owned player. Safe to call repeatedly.
      */
     fun close() {
         if (closed) return
-        persistenceJob?.cancel()
-        persistPlaybackState()
         closed = true
         var cleanupFailure: Throwable? = null
         fun cleanup(action: () -> Unit) {
@@ -574,7 +533,6 @@ class PlaybackCoordinator(
         if (started && !closed) {
             mediaIntegration.updatePlaybackState(value)
         }
-        schedulePersistence()
     }
 
     private fun updatePendingQueuePlayWhenReady(playWhenReady: Boolean) {
@@ -645,32 +603,6 @@ class PlaybackCoordinator(
         return result
     }
 
-    private fun captureRestorableState(): RestorablePlaybackState? {
-        val current = snapshot.value
-        val currentIndex = current.queueIndex ?: return null
-        if (queue.isEmpty() || currentIndex !in queue.indices) return null
-        return RestorablePlaybackState(
-            queue = queue,
-            currentIndex = currentIndex,
-            positionMillis = current.positionMillis,
-            speed = current.speed,
-            repeatMode = current.repeatMode,
-            shuffleEnabled = current.shuffleEnabled,
-            paused = !current.playWhenReady
-        )
-    }
-
-    private fun schedulePersistence() {
-        val store = stateStore ?: return
-        if (!started || closed || restoring) return
-        val state = captureRestorableState() ?: return
-        persistenceJob?.cancel()
-        persistenceJob = scope.launch {
-            delay(PERSISTENCE_DEBOUNCE_MILLIS)
-            runCatching { store.save(state) }
-        }
-    }
-
     private fun ensureUsable() {
         check(started) { "PlaybackCoordinator has not been started" }
         check(!closed) { "PlaybackCoordinator is already closed" }
@@ -689,7 +621,6 @@ class PlaybackCoordinator(
 
 private const val MILLIS_PER_SECOND = 1000.0
 private const val COMMAND_ACCEPTED = 0
-private const val PERSISTENCE_DEBOUNCE_MILLIS = 1_000L
 private const val PLAYLIST_POSITION = "playlist-pos"
 private const val LOOP_FILE = "loop-file"
 private const val LOOP_PLAYLIST = "loop-playlist"

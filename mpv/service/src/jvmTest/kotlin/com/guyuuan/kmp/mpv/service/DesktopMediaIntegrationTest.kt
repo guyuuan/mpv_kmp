@@ -1,7 +1,6 @@
 package com.guyuuan.kmp.mpv.service
 
 import java.net.URI
-import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -166,40 +165,6 @@ class DesktopMediaIntegrationTest {
             integration.deactivate()
         }
         assertTrue(true)
-    }
-
-    @Test
-    fun desktopStateStoreRoundTripsWithoutPreferencesSizeLimits() {
-        val directory = Files.createTempDirectory("mpv-kmp-service-test-")
-        try {
-            val store = DesktopPlaybackStateStore(
-                applicationId = "test_player",
-                storageFile = directory.resolve("playback-state")
-            )
-            val state = RestorablePlaybackState(
-                queue = listOf(
-                    PlaybackMetadata(
-                        mediaId = "large-artwork",
-                        uri = "file:///track.flac",
-                        title = "Track",
-                        artwork = PlaybackArtwork.Bytes(ByteArray(10_000) { (it % 251).toByte() })
-                    )
-                ),
-                currentIndex = 0,
-                positionMillis = 5_000,
-                speed = 1f,
-                repeatMode = PlaybackRepeatMode.None,
-                shuffleEnabled = false,
-                paused = true
-            )
-
-            store.save(state)
-            assertEquals(state, store.load())
-            store.clear()
-            assertEquals(null, store.load())
-        } finally {
-            directory.toFile().deleteRecursively()
-        }
     }
 
     @Suppress("UNCHECKED_CAST")
