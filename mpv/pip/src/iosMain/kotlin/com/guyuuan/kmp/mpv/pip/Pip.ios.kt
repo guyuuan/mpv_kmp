@@ -11,6 +11,8 @@ import androidx.compose.runtime.remember
 import cnames.structs.opaqueCMSampleBuffer
 import com.guyuuan.kmp.mpv.IosMpvVideoOutput
 import com.guyuuan.kmp.mpv.IosRenderContextSupport
+import com.guyuuan.kmp.mpv.MpvVideoOutputReadiness
+import com.guyuuan.kmp.mpv.MpvVideoOutputState
 import com.guyuuan.kmp.mpv.config.MpvConfig
 import com.guyuuan.kmp.mpv.service.IosNowPlayingMediaIntegration
 import com.guyuuan.kmp.mpv.service.MediaCommand
@@ -143,9 +145,12 @@ internal actual fun installPlatformPipPlaybackConfiguration(
 
 private class IosSampleBufferPictureInPictureOutput(
     private val coordinator: PlaybackCoordinator
-) : IosMpvVideoOutput, PictureInPictureController {
+) : IosMpvVideoOutput, MpvVideoOutputReadiness, PictureInPictureController {
 
     private val renderPlayer = coordinator.player as? IosRenderContextSupport
+    private val mutableVideoOutputState = MutableStateFlow(MpvVideoOutputState.Detached)
+    override val videoOutputState: StateFlow<MpvVideoOutputState> =
+        mutableVideoOutputState.asStateFlow()
     private val mutableAvailability = MutableStateFlow(resolveAvailability(renderPlayer))
     override val availability: StateFlow<PictureInPictureAvailability> =
         mutableAvailability.asStateFlow()
@@ -253,6 +258,7 @@ private class IosSampleBufferPictureInPictureOutput(
             renderPlayer?.freeRenderContext()
             renderContextReady = false
         }
+        mutableVideoOutputState.value = MpvVideoOutputState.Detached
         renderCallbackRegistered = false
         mutableState.value = PictureInPictureState.Inactive
     }
@@ -294,6 +300,7 @@ private class IosSampleBufferPictureInPictureOutput(
             renderPlayer.setRenderCallback { scheduleRender() }
             renderCallbackRegistered = true
         }
+        mutableVideoOutputState.value = MpvVideoOutputState.Attached
         return true
     }
 

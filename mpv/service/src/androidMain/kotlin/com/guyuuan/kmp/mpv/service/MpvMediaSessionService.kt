@@ -13,6 +13,7 @@ open class MpvMediaSessionService : MediaSessionService() {
     private var coordinator: PlaybackCoordinator? = null
     private var mediaIntegration: AndroidMediaSessionIntegration? = null
     private var mediaSession: MediaSession? = null
+    private var ownerGeneration: Long? = null
 
     protected open fun createPlatformMediaIntegration(): AndroidMediaSessionIntegration =
         AndroidMediaSessionIntegration()
@@ -29,29 +30,38 @@ open class MpvMediaSessionService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        ensureCurrentSession()
+    }
 
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+        ensureCurrentSession()
+
+    private fun ensureCurrentSession(): MediaSession {
         val playback = AndroidPlaybackCoordinatorOwner.acquire(
             context = this,
             mediaIntegrationFactory = ::createPlatformMediaIntegration,
             coordinatorFactory = ::createPlaybackCoordinator
         )
-        val mediaIntegration = playback.mediaIntegration
-        val coordinator = playback.coordinator
-        val session = MediaSession.Builder(this, mediaIntegration.player).build()
+        if (ownerGeneration == playback.generation) {
+            return checkNotNull(mediaSession)
+        }
 
-        this.coordinator = coordinator
-        this.mediaIntegration = mediaIntegration
-        this.mediaSession = session
+        mediaSession?.release()
+        val integration = playback.mediaIntegration
+        return MediaSession.Builder(this, integration.player).build().also { session ->
+            coordinator = playback.coordinator
+            mediaIntegration = integration
+            mediaSession = session
+            ownerGeneration = playback.generation
+        }
     }
-
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-        mediaSession
 
     override fun onDestroy() {
         mediaSession?.release()
         mediaSession = null
         coordinator = null
         mediaIntegration = null
+        ownerGeneration = null
         super.onDestroy()
     }
 }

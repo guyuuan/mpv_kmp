@@ -11,19 +11,24 @@ import com.guyuuan.kmp.mpv.data.MpvPlaylistItem
 import com.guyuuan.kmp.mpv.mpv.*
 import com.guyuuan.kmp.mpv.props.MpvAudioProperties
 import com.guyuuan.kmp.mpv.props.MpvPlaybackProperties
+import com.guyuuan.kmp.mpv.util.MpvNativeCallGate
+import com.guyuuan.kmp.mpv.util.PlatformLock
 import co.touchlab.kermit.Logger
 import kotlinx.cinterop.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import platform.CoreFoundation.kCFAllocatorDefault
 import platform.CoreMedia.CMVideoFormatDescriptionCreateForImageBuffer
 import platform.CoreVideo.CVPixelBufferGetBaseAddress
 import platform.CoreVideo.CVPixelBufferGetBytesPerRow
 import platform.CoreVideo.CVPixelBufferLockBaseAddress
 import platform.CoreVideo.CVPixelBufferUnlockBaseAddress
+import platform.Foundation.NSThread
 import platform.posix.RTLD_LAZY
 import platform.posix.dlopen
 import platform.posix.dlsym
@@ -94,30 +99,43 @@ private class IosMpv(
     private var eventJob: Job? = null
     private val observedProperties = mutableMapOf<String, ULong>()
     private var nextPropertyObserverId = 1uL
+    private val callGate = MpvNativeCallGate()
+    private val lifecycleLock = PlatformLock()
+    @Volatile
+    private var eventThread: NSThread? = null
+    @Volatile
+    private var terminating = false
 
-    override fun initialize(): Boolean {
-        if (handle != null) return true
-        handle = mpv_create()
-        val h = handle ?: return false
+    override fun initialize(): Boolean = lifecycleLock.withLock {
+        if (handle != null) return@withLock true
+        terminating = false
+        callGate.reopen()
+        handle = callGate.withControlCall(onClosing = { null }) {
+            mpv_create()
+        }
+        val h = handle ?: return@withLock false
         if (!loadConfig()) {
-            mpv_terminate_destroy(h)
-            handle = null
-            return false
+            destroyNativeHandle(h)
+            return@withLock false
         }
-        val r = mpv_initialize(h)
-        if (r != 0) {
-            Logger.e(tag = "IosMpv") { "mpv_initialize failed: $r (${mpvError(r)})" }
-            mpv_terminate_destroy(h)
-            handle = null
-            return false
+        val result = callGate.withControlCall(onClosing = { -1 }) {
+            mpv_initialize(h)
         }
-        mpv_request_log_messages(h, "v")
-        return true
+        if (result != 0) {
+            Logger.e(tag = "IosMpv") { "mpv_initialize failed: $result (${mpvError(result)})" }
+            destroyNativeHandle(h)
+            return@withLock false
+        }
+        callGate.withControlCall(onClosing = { -1 }) {
+            mpv_request_log_messages(h, "v")
+        }
+        true
     }
 
     override fun setConfigOption(name: String, value: String): Int {
-        val h = handle ?: return -1
-        val result = mpv_set_option_string(h, name, value)
+        val result = withControlCall(onUnavailable = { -1 }) { h ->
+            mpv_set_option_string(h, name, value)
+        }
         if (result < 0) {
             Logger.e(tag = "IosMpv") {
                 "failed to set $name=$value: $result (${mpvError(result)})"
@@ -135,8 +153,9 @@ private class IosMpv(
     }
 
     override fun commandString(cmd: String): Int {
-        val h = handle ?: return -1
-        return mpv_command_string(h, cmd)
+        return withControlCall(onUnavailable = { -1 }) { h ->
+            mpv_command_string(h, cmd)
+        }
     }
 
     override fun load(uri: String): Int {
@@ -163,11 +182,12 @@ private class IosMpv(
     }
 
     override fun observeProperty(name: String) {
-        val h = handle ?: return
         if (observedProperties.containsKey(name)) return
         val observerId = allocatePropertyObserverId()
         observedProperties[name] = observerId
-        val result = mpv_observe_property(h, observerId, name, MPV_FORMAT_STRING)
+        val result = withControlCall(onUnavailable = { -1 }) { h ->
+            mpv_observe_property(h, observerId, name, MPV_FORMAT_STRING)
+        }
         if (result != 0) {
             Logger.e(tag = "IosMpv") {
                 "observeProperty failed: $result (${mpvError(result)}), name=$name"
@@ -181,9 +201,10 @@ private class IosMpv(
     }
 
     override fun removePropertyObservation(name: String) {
-        val h = handle ?: return
         val observerId = observedProperties[name] ?: return
-        val result = mpv_unobserve_property(h, observerId)
+        val result = withControlCall(onUnavailable = { -1 }) { h ->
+            mpv_unobserve_property(h, observerId)
+        }
         if (result < 0) {
             Logger.e(tag = "IosMpv") {
                 "removePropertyObservation failed: $result (${mpvError(result)}), name=$name"
@@ -219,16 +240,16 @@ private class IosMpv(
     }
 
     override fun setProperty(name: String, value: String): Int {
-        val h = handle ?: return -1
-        return mpv_set_property_string(h, name, value)
+        return withControlCall(onUnavailable = { -1 }) { h ->
+            mpv_set_property_string(h, name, value)
+        }
     }
 
     override fun getProperty(name: String): String? {
-        val h = handle ?: return null
-        val value = mpv_get_property_string(h, name) ?: return null
-        val result = value.toKString()
-        mpv_free(value)
-        return result
+        return withControlCall(onUnavailable = { null }) { h ->
+            val value = mpv_get_property_string(h, name) ?: return@withControlCall null
+            value.toKString().also { mpv_free(value) }
+        }
     }
 
     private fun readPlaylist(): List<MpvPlaylistItem> {
@@ -244,39 +265,63 @@ private class IosMpv(
         }
     }
 
-    override fun terminate() {
+    override fun terminate() = lifecycleLock.withLock {
         val h = handle
+        val job = eventJob
+        check(eventThread == null || eventThread !== NSThread.currentThread) {
+            "Mpv.terminate() must not be called from an MpvEventListener"
+        }
+        if (h == null && job == null) return@withLock
+
+        callGate.beginClosing()
+        terminating = true
         running = false
+        eventJob = null
+        job?.cancel()
+        if (h != null) mpv_wakeup(h)
+        runBlocking { job?.cancelAndJoin() }
+
+        callGate.closeWhenIdle {
+            freeRenderContextNow()
+            if (h != null) mpv_terminate_destroy(h)
+            handle = null
+        }
         observedProperties.clear()
         nextPropertyObserverId = 1uL
-        if (h == null) return
-        freeRenderContext()
-        mpv_wakeup(h)
-        mpv_terminate_destroy(h)
-        handle = null
-        eventJob?.cancel()
-        eventJob = null
     }
 
     override fun startEventLoop() {
-        if (running) return
-        if (scope == null) return
-        running = true
-        if (eventJob?.isActive == true) return
-        eventJob = scope!!.launch(Dispatchers.Default) {
-            val h = handle ?: return@launch
-            while (running && isActive) {
-                val eventPtr = mpv_wait_event(h, 1.0)
-                if (eventPtr != null) {
-                    val event = eventPtr.pointed
-                    if (event.event_id == MPV_EVENT_NONE) continue
-                    handleEvent(event)
+        if (terminating) return
+        lifecycleLock.withLock {
+            if (terminating) return@withLock
+            if (running) return@withLock
+            if (handle == null) return@withLock
+            if (scope == null) return@withLock
+            running = true
+            if (eventJob?.isActive == true) return@withLock
+            eventJob = scope!!.launch(Dispatchers.Default) {
+                val h = handle ?: return@launch
+                eventThread = NSThread.currentThread
+                try {
+                    while (running && isActive) {
+                        val event = callGate.withEventCall(onClosing = { null }) {
+                            readEvent(h)
+                        }
+                        if (event != null) {
+                            dispatchEvent(event)
+                        }
+                    }
+                } finally {
+                    eventThread = null
                 }
             }
         }
     }
 
-    private fun handleEvent(event: mpv_event) {
+    private fun readEvent(h: CPointer<mpv_handle>): MpvEvent? {
+        val eventPtr = mpv_wait_event(h, 1.0) ?: return null
+        val event = eventPtr.pointed
+        if (event.event_id == MPV_EVENT_NONE) return null
         val type = mapEventType(event.event_id)
         var name: String? = null
         var value: String? = null
@@ -285,7 +330,7 @@ private class IosMpv(
                 event.reply_userdata
             )
         ) {
-            return
+            return null
         }
 
         if (type == MpvEventType.LogMessage && event.data != null) {
@@ -304,7 +349,7 @@ private class IosMpv(
             }
         }
 
-        listeners.forEach { it.invoke(MpvEvent(type, name, value, event.error)) }
+        return MpvEvent(type, name, value, event.error)
     }
 
     private fun mapEventType(id: mpv_event_id): MpvEventType {
@@ -332,124 +377,129 @@ private class IosMpv(
     }
 
     override fun createRenderContext(): Boolean {
-        val h = handle ?: return false
-        if (renderContext != null) return renderContextType == RenderContextType.OpenGl
+        return callGate.withRenderCall(onClosing = { false }) {
+            val h = handle ?: return@withRenderCall false
+            if (renderContext != null) {
+                return@withRenderCall renderContextType == RenderContextType.OpenGl
+            }
+            memScoped {
+                val api = MPV_RENDER_API_TYPE_OPENGL.cstr.getPointer(this)
+                val glInitParams = alloc<mpv_opengl_init_params>()
+                glInitParams.get_proc_address = staticCFunction(::mpvGetOpenGlProcAddress)
+                glInitParams.get_proc_address_ctx = null
 
-        return memScoped {
-            val api = MPV_RENDER_API_TYPE_OPENGL.cstr.getPointer(this)
-            val glInitParams = alloc<mpv_opengl_init_params>()
-            glInitParams.get_proc_address = staticCFunction(::mpvGetOpenGlProcAddress)
-            glInitParams.get_proc_address_ctx = null
+                val params = allocArray<mpv_render_param>(3)
+                params[0].type = MPV_RENDER_PARAM_API_TYPE
+                params[0].data = api.reinterpret()
+                params[1].type = MPV_RENDER_PARAM_OPENGL_INIT_PARAMS
+                params[1].data = glInitParams.ptr.reinterpret()
+                params[2].type = MPV_RENDER_PARAM_INVALID
+                params[2].data = null
 
-            val params = allocArray<mpv_render_param>(3)
-            params[0].type = MPV_RENDER_PARAM_API_TYPE
-            params[0].data = api.reinterpret()
-            params[1].type = MPV_RENDER_PARAM_OPENGL_INIT_PARAMS
-            params[1].data = glInitParams.ptr.reinterpret()
-            params[2].type = MPV_RENDER_PARAM_INVALID
-            params[2].data = null
-
-            val out = alloc<CPointerVarOf<CPointer<mpv_render_context>>>()
-            val result = mpv_render_context_create(out.ptr, h, params)
-            if (result == 0) {
-                renderContext = out.value
-                renderContextType = RenderContextType.OpenGl
-                Logger.d(tag = "IosMpv") { "OpenGL render context created" }
-                true
-            } else {
-                Logger.e(tag = "IosMpv") {
-                    "OpenGL render context creation failed: $result (${
-                        mpvError(
-                            result
-                        )
-                    })"
+                val out = alloc<CPointerVarOf<CPointer<mpv_render_context>>>()
+                val result = mpv_render_context_create(out.ptr, h, params)
+                if (result == 0) {
+                    renderContext = out.value
+                    renderContextType = RenderContextType.OpenGl
+                    Logger.d(tag = "IosMpv") { "OpenGL render context created" }
+                    true
+                } else {
+                    Logger.e(tag = "IosMpv") {
+                        "OpenGL render context creation failed: $result (${mpvError(result)})"
+                    }
+                    false
                 }
-                false
             }
         }
     }
 
     override fun createSampleBufferRenderContext(): Boolean {
-        val h = handle ?: return false
-        if (renderContext != null) return renderContextType == RenderContextType.Software
+        return callGate.withRenderCall(onClosing = { false }) {
+            val h = handle ?: return@withRenderCall false
+            if (renderContext != null) {
+                return@withRenderCall renderContextType == RenderContextType.Software
+            }
+            memScoped {
+                val api = MPV_RENDER_API_TYPE_SW.cstr.getPointer(this)
+                val params = allocArray<mpv_render_param>(2)
+                params[0].type = MPV_RENDER_PARAM_API_TYPE
+                params[0].data = api.reinterpret()
+                params[1].type = MPV_RENDER_PARAM_INVALID
+                params[1].data = null
 
-        return memScoped {
-            val api = MPV_RENDER_API_TYPE_SW.cstr.getPointer(this)
-            val params = allocArray<mpv_render_param>(2)
-            params[0].type = MPV_RENDER_PARAM_API_TYPE
-            params[0].data = api.reinterpret()
-            params[1].type = MPV_RENDER_PARAM_INVALID
-            params[1].data = null
-
-            val out = alloc<CPointerVarOf<CPointer<mpv_render_context>>>()
-            val result = mpv_render_context_create(out.ptr, h, params)
-            if (result == 0) {
-                renderContext = out.value
-                renderContextType = RenderContextType.Software
-                Logger.d(tag = "IosMpv") { "software render context created" }
-                true
-            } else {
-                Logger.e(tag = "IosMpv") {
-                    "software render context creation failed: $result (${mpvError(result)})"
+                val out = alloc<CPointerVarOf<CPointer<mpv_render_context>>>()
+                val result = mpv_render_context_create(out.ptr, h, params)
+                if (result == 0) {
+                    renderContext = out.value
+                    renderContextType = RenderContextType.Software
+                    Logger.d(tag = "IosMpv") { "software render context created" }
+                    true
+                } else {
+                    Logger.e(tag = "IosMpv") {
+                        "software render context creation failed: $result (${mpvError(result)})"
+                    }
+                    false
                 }
-                false
             }
         }
     }
 
     override fun freeRenderContext() {
-        val ctx = renderContext
-        if (ctx != null) {
-            mpv_render_context_set_update_callback(ctx, null, null)
-            mpv_render_context_free(ctx)
-            renderContext = null
+        callGate.withRenderCall(onClosing = {}) {
+            freeRenderContextNow()
         }
-        renderContextType = null
-        renderCallbackRef?.dispose()
-        renderCallbackRef = null
     }
 
-    override fun updateRenderContext(): Boolean {
-        val ctx = renderContext ?: return false
-        return (mpv_render_context_update(ctx) and 1uL) != 0uL
-    }
+    override fun updateRenderContext(): Boolean =
+        callGate.withRenderCall(onClosing = { false }) {
+            val ctx = renderContext ?: return@withRenderCall false
+            (mpv_render_context_update(ctx) and 1uL) != 0uL
+        }
 
     override fun renderGl(width: Int, height: Int, fbo: Int, internalFormat: Int): Int {
-        val ctx = renderContext ?: return -1
-        if (renderContextType != RenderContextType.OpenGl) return -1
-        if (width <= 0 || height <= 0) return -1
-
-        return memScoped {
-            val target = alloc<mpv_opengl_fbo>()
-            target.fbo = fbo
-            target.w = width
-            target.h = height
-            target.internal_format = internalFormat
-
-            val flipY = alloc<IntVar>()
-            flipY.value = 1
-
-            val params = allocArray<mpv_render_param>(3)
-            params[0].type = MPV_RENDER_PARAM_OPENGL_FBO
-            params[0].data = target.ptr.reinterpret()
-            params[1].type = MPV_RENDER_PARAM_FLIP_Y
-            params[1].data = flipY.ptr.reinterpret()
-            params[2].type = MPV_RENDER_PARAM_INVALID
-            params[2].data = null
-
-            val result = mpv_render_context_render(ctx, params)
-            if (result == 0) {
-                mpv_render_context_report_swap(ctx)
-            } else {
-                Logger.e(tag = "IosMpv") {
-                    "OpenGL render failed: $result (${mpvError(result)})"
-                }
+        return callGate.withRenderCall(onClosing = { -1 }) {
+            val ctx = renderContext ?: return@withRenderCall -1
+            if (renderContextType != RenderContextType.OpenGl || width <= 0 || height <= 0) {
+                return@withRenderCall -1
             }
-            result
+            memScoped {
+                val target = alloc<mpv_opengl_fbo>()
+                target.fbo = fbo
+                target.w = width
+                target.h = height
+                target.internal_format = internalFormat
+
+                val flipY = alloc<IntVar>()
+                flipY.value = 1
+                val params = allocArray<mpv_render_param>(3)
+                params[0].type = MPV_RENDER_PARAM_OPENGL_FBO
+                params[0].data = target.ptr.reinterpret()
+                params[1].type = MPV_RENDER_PARAM_FLIP_Y
+                params[1].data = flipY.ptr.reinterpret()
+                params[2].type = MPV_RENDER_PARAM_INVALID
+                params[2].data = null
+
+                val result = mpv_render_context_render(ctx, params)
+                if (result == 0) {
+                    mpv_render_context_report_swap(ctx)
+                } else {
+                    Logger.e(tag = "IosMpv") {
+                        "OpenGL render failed: $result (${mpvError(result)})"
+                    }
+                }
+                result
+            }
         }
     }
 
     override fun renderSampleBuffer(
+        width: Int,
+        height: Int
+    ): CPointer<opaqueCMSampleBuffer>? = callGate.withRenderCall(onClosing = { null }) {
+        renderSampleBufferNow(width, height)
+    }
+
+    private fun renderSampleBufferNow(
         width: Int,
         height: Int
     ): CPointer<opaqueCMSampleBuffer>? {
@@ -591,15 +641,49 @@ private class IosMpv(
     }
 
     override fun setRenderCallback(callback: () -> Unit) {
-        val ctx = renderContext ?: return
-        mpv_render_context_set_update_callback(ctx, null, null)
-        renderCallbackRef?.dispose()
+        callGate.withRenderCall(onClosing = {}) {
+            val ctx = renderContext ?: return@withRenderCall
+            mpv_render_context_set_update_callback(ctx, null, null)
+            renderCallbackRef?.dispose()
 
-        val ref = StableRef.create(callback)
-        renderCallbackRef = ref
-        mpv_render_context_set_update_callback(
-            ctx, staticCFunction(::mpvRenderUpdateCallback), ref.asCPointer()
-        )
+            val guardedCallback = {
+                callGate.withRenderCall(onClosing = {}) {
+                    callback()
+                }
+            }
+            val ref = StableRef.create(guardedCallback)
+            renderCallbackRef = ref
+            mpv_render_context_set_update_callback(
+                ctx, staticCFunction(::mpvRenderUpdateCallback), ref.asCPointer()
+            )
+        }
+    }
+
+    private fun freeRenderContextNow() {
+        renderContext?.let { context ->
+            mpv_render_context_set_update_callback(context, null, null)
+            mpv_render_context_free(context)
+            renderContext = null
+        }
+        renderContextType = null
+        renderCallbackRef?.dispose()
+        renderCallbackRef = null
+    }
+
+    private fun destroyNativeHandle(h: CPointer<mpv_handle>) {
+        callGate.beginClosing()
+        callGate.closeWhenIdle {
+            mpv_terminate_destroy(h)
+            if (handle == h) handle = null
+        }
+    }
+
+    private fun <T> withControlCall(
+        onUnavailable: () -> T,
+        action: (CPointer<mpv_handle>) -> T
+    ): T = callGate.withControlCall(onClosing = onUnavailable) {
+        val h = handle ?: return@withControlCall onUnavailable()
+        action(h)
     }
 
     private fun mpvError(code: Int): String {

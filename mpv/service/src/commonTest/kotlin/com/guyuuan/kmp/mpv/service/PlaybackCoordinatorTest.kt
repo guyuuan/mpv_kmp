@@ -173,6 +173,37 @@ class PlaybackCoordinatorTest {
     }
 
     @Test
+    fun queuedPlaybackEventsAfterStopDoNotRestoreClearedMediaState() {
+        val fixture = Fixture()
+        fixture.coordinator.start()
+        val metadata = PlaybackMetadata(
+            mediaId = "episode-1",
+            uri = "https://example.test/episode.mp3",
+            title = "Episode 1"
+        )
+        fixture.coordinator.load(metadata)
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.StartFile))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.FileLoaded))
+
+        assertEquals(0, fixture.coordinator.execute(MediaCommand.Stop))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.Unpause))
+        fixture.mpv.emit(MpvEvent(type = MpvEventType.PlaybackRestart))
+        fixture.mpv.emit(
+            MpvEvent(
+                type = MpvEventType.PropertyChange,
+                name = "playlist-pos",
+                value = "0"
+            )
+        )
+
+        assertNull(fixture.coordinator.snapshot.value.metadata)
+        assertEquals(PlaybackStatus.Stopped, fixture.coordinator.snapshot.value.status)
+        assertFalse(fixture.coordinator.snapshot.value.playWhenReady)
+        assertNull(fixture.integration.metadata.last())
+        fixture.close()
+    }
+
+    @Test
     fun pauseDuringQueueLoadingOverridesAutoPlay() {
         val fixture = Fixture()
         fixture.coordinator.start()

@@ -10,19 +10,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Preview
-import androidx.compose.material.icons.filled.QueuePlayNext
+import androidx.compose.material.icons.filled.ChangeCircle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.*
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -33,21 +39,53 @@ import com.guyuuan.kmp.mpv.pip.rememberPipMpvPlayer
 import com.guyuuan.kmp.mpv.service.PlaybackArtwork
 import com.guyuuan.kmp.mpv.service.PlaybackMediaType
 import com.guyuuan.kmp.mpv.service.PlaybackMetadata
+import kotlinx.coroutines.yield
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun App(overlay: @Composable BoxScope.() -> Unit = {}) {
+fun App(
+    overlay: @Composable BoxScope.() -> Unit = {},
+) {
+    var displayedPage by remember { mutableStateOf<ExamplePage?>(ExamplePage.Player) }
+    var pendingPage by remember { mutableStateOf<ExamplePage?>(null) }
     MaterialTheme {
-        val player = rememberPipMpvPlayer()
-        val playerSnapshot by player.snapshot.collectAsState()
-        val pictureInPictureState by player.pictureInPicture.state.collectAsState()
-        val videoUrl =
-            "https://emby.guyuuan.com:23231/emby/Items/39635/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_39635"
+        Scaffold(
+            floatingActionButton = {
+                FloatingActionButton(
+                    onClick = {
+                        if (pendingPage == null) {
+                            pendingPage = when (displayedPage) {
+                                ExamplePage.Stress -> ExamplePage.Player
+                                ExamplePage.Player,
+                                null -> ExamplePage.Stress
+                            }
+                            // Apply an empty composition first. Both platform PiP owners are
+                            // process-wide, so the outgoing player must synchronously close before
+                            // the incoming page is allowed to acquire the next owner.
+                            displayedPage = null
+                        }
+                    }
+                ) {
+                    Icon(imageVector = Icons.Default.ChangeCircle, contentDescription = null)
+                }
+            }
+        ) {
+            when (displayedPage) {
+                ExamplePage.Stress -> {
+                    NativeShutdownStressPage()
+                }
+
+                ExamplePage.Player -> {
+                    val player = rememberPipMpvPlayer()
+                    val playerSnapshot by player.snapshot.collectAsState()
+                    val pictureInPictureState by player.pictureInPicture.state.collectAsState()
+                    val videoUrl =
+                        "https://emby.guyuuan.com:23231/emby/Items/39635/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_39635"
 //        val videoUrl =
 //            "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275"
 
-        fun playVideo() {
-            Logger.i(tag = "Example") { "start load video" }
+                    fun playVideo() {
+                        Logger.i(tag = "Example") { "start load video" }
 //            player.load(PlaybackMetadata(
 //                mediaId = videoUrl,
 //                uri = videoUrl,
@@ -57,92 +95,112 @@ fun App(overlay: @Composable BoxScope.() -> Unit = {}) {
 //                artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
 //                mediaType = PlaybackMediaType.Video
 //            ))
-            player.addToPlayList(
-                listOf(
-                    PlaybackMetadata(
-                        mediaId = videoUrl,
-                        uri = videoUrl,
-                        title = "我的阿勒泰",
-                        artist = "S01E05",
-                        albumTitle = "album",
-                        artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
-                        mediaType = PlaybackMediaType.Video
-                    ), PlaybackMetadata(
-                        mediaId = "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275",
-                        uri = "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275",
-                        title = "得闲谨制",
-                        artist = "artist",
-                        albumTitle = "album",
-                        artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
-                        mediaType = PlaybackMediaType.Video
-                    ), PlaybackMetadata(
-                        mediaId = "https://emby.guyuuan.com:23231/emby/Items/40777/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_40777",
-                        uri = "https://emby.guyuuan.com:23231/emby/Items/40777/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_40777",
-                        title = "蜘蛛侠",
-                        artist = "artist",
-                        albumTitle = "album",
-                        artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
-                        mediaType = PlaybackMediaType.Video
-                    )
-                ),
-            )
-        }
+                        player.addToPlayList(
+                            listOf(
+                                PlaybackMetadata(
+                                    mediaId = videoUrl,
+                                    uri = videoUrl,
+                                    title = "我的阿勒泰",
+                                    artist = "S01E05",
+                                    albumTitle = "album",
+                                    artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
+                                    mediaType = PlaybackMediaType.Video
+                                ), PlaybackMetadata(
+                                    mediaId = "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275",
+                                    uri = "https://emby.guyuuan.com:23231/emby/Items/38275/Download?api_key=8f8fafb4ddeb4a978385d1edc5b723ea&mediaSourceId=mediasource_38275",
+                                    title = "得闲谨制",
+                                    artist = "artist",
+                                    albumTitle = "album",
+                                    artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
+                                    mediaType = PlaybackMediaType.Video
+                                ), PlaybackMetadata(
+                                    mediaId = "https://emby.guyuuan.com:23231/emby/Items/40777/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_40777",
+                                    uri = "https://emby.guyuuan.com:23231/emby/Items/40777/Download?api_key=373c1a911e9449f1972dc4e431390745&mediaSourceId=mediasource_40777",
+                                    title = "蜘蛛侠",
+                                    artist = "artist",
+                                    albumTitle = "album",
+                                    artwork = PlaybackArtwork.Uri("https://emby.guyuuan.com:23231/emby/Items/39632/Images/Primary?maxHeight=940&maxWidth=626&tag=051df6d68720835e1d4b8599e812f200&keepAnimation=true&quality=90"),
+                                    mediaType = PlaybackMediaType.Video
+                                )
+                            ),
+                        )
+                    }
 
-        Column {
-            MpvComposeView(
-                modifier = Modifier.weight(1f), player = player, overlay = {
-                    if (pictureInPictureState == PictureInPictureState.Inactive) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            overlay()
-                            PlaySpeed(
-                                modifier = Modifier.align(alignment = Alignment.CenterEnd)
-                                    .padding(end = 16.dp), value = playerSnapshot.speed
-                            ) {
-                                player.setSpeed(it)
+                    Column {
+                        MpvComposeView(
+                            modifier = Modifier.weight(1f), player = player, overlay = {
+                                if (pictureInPictureState == PictureInPictureState.Inactive) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                    ) {
+                                        overlay()
+                                        PlaySpeed(
+                                            modifier = Modifier.align(alignment = Alignment.CenterEnd)
+                                                .padding(end = 16.dp), value = playerSnapshot.speed
+                                        ) {
+                                            player.setSpeed(it)
+                                        }
+                                        BottomBar(
+                                            modifier = Modifier.align(alignment = Alignment.BottomCenter)
+                                                .windowInsetsPadding(insets = WindowInsets.safeContent),
+                                            playerState = player
+                                        )
+                                    }
+                                }
+                            })
+
+                        Row(modifier = Modifier.padding(vertical = 64.dp)) {
+                            TextButton({
+                                player.stop()
+                            }) {
+                                Text("Stop")
                             }
-                            BottomBar(
-                                modifier = Modifier.align(alignment = Alignment.BottomCenter)
-                                    .windowInsetsPadding(insets = WindowInsets.safeContent),
-                                playerState = player
-                            )
+
+                            TextButton({ playVideo() }) {
+                                Text("Load")
+                            }
+                            TextButton({ player.togglePause() }) {
+                                Text(if (playerSnapshot.isPlaying) "pause" else "play")
+                            }
+                            if (playerSnapshot.canPrevious) {
+                                IconButton(onClick = {
+                                    player.previous()
+                                }) {
+                                    Icon(Icons.Default.SkipPrevious, contentDescription = null)
+                                }
+                            }
+                            if (playerSnapshot.canNext) {
+                                IconButton(onClick = {
+                                    player.next()
+                                }) {
+                                    Icon(Icons.Default.SkipNext, contentDescription = null)
+                                }
+                            }
                         }
                     }
-                })
 
-            Row (modifier=Modifier.padding(vertical = 64.dp)){
-                TextButton({
-                    player.stop()
-                }) {
-                    Text("Stop")
-                }
-
-                TextButton({ playVideo() }) {
-                    Text("Load")
-                }
-                TextButton({ player.togglePause() }) {
-                    Text(if (playerSnapshot.isPlaying) "pause" else "play")
-                }
-                if (playerSnapshot.canPrevious){
-                    IconButton(onClick = {
-                        player.previous()
-                    }){
-                        Icon(Icons.Default.SkipPrevious, contentDescription = null)
+                    LaunchedEffect(playerSnapshot.isPlaying) {
+                        player.pictureInPicture.setEligible(playerSnapshot.isPlaying)
                     }
                 }
-                if (playerSnapshot.canNext){
-                    IconButton(onClick = {
-                        player.next()
-                    }){
-                        Icon(Icons.Default.SkipNext, contentDescription = null)
-                    }
-                }
+
+                null -> Unit
             }
         }
-
-        LaunchedEffect(playerSnapshot.isPlaying) {
-            player.pictureInPicture.setEligible(playerSnapshot.isPlaying)
-        }
     }
+
+    LaunchedEffect(displayedPage, pendingPage) {
+        if (displayedPage != null) return@LaunchedEffect
+        val nextPage = pendingPage ?: return@LaunchedEffect
+        // The outgoing DisposableEffect is applied before this effect starts. Yield once more so
+        // synchronous platform-owner teardown has fully returned before composing the next page.
+        yield()
+        displayedPage = nextPage
+        pendingPage = null
+    }
+}
+
+private enum class ExamplePage {
+    Player,
+    Stress,
 }

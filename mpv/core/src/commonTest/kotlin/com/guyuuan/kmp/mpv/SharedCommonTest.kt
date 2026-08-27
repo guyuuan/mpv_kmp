@@ -5,6 +5,7 @@ import com.guyuuan.kmp.mpv.config.MpvConfig
 import com.guyuuan.kmp.mpv.data.MpvAudioDecoderInfo
 import com.guyuuan.kmp.mpv.data.MpvAudioTrack
 import com.guyuuan.kmp.mpv.data.MpvDecoderInfo
+import com.guyuuan.kmp.mpv.data.MpvEvent
 import com.guyuuan.kmp.mpv.data.MpvPlaylistItem
 import com.guyuuan.kmp.mpv.data.MpvSubtitleTrack
 import com.guyuuan.kmp.mpv.data.MpvVideoDecoderInfo
@@ -18,6 +19,24 @@ import kotlin.test.assertNull
 import kotlinx.coroutines.CoroutineScope
 
 class SharedCommonTest {
+    @Test
+    fun eventListenerMayRemoveAnotherListenerDuringDispatch() {
+        val mpv = FakeMpv(emptyMap())
+        val received = mutableListOf<String>()
+        lateinit var second: MpvEventListener
+        val first: MpvEventListener = {
+            received += "first"
+            mpv.removeEventListener(second)
+        }
+        second = { received += "second" }
+        mpv.addEventListener(first)
+        mpv.addEventListener(second)
+
+        mpv.emit(MpvEvent(type = MpvEventType.Idle))
+        mpv.emit(MpvEvent(type = MpvEventType.Idle))
+
+        assertEquals(listOf("first", "second", "first"), received)
+    }
 
     @Test
     fun example() {
@@ -399,6 +418,8 @@ class SharedCommonTest {
         val configOptions = mutableListOf<Pair<String, String>>()
         val externalSubtitleUris = mutableListOf<String>()
         val playlistUris = mutableListOf<String>()
+
+        fun emit(event: MpvEvent) = dispatchEvent(event)
 
         override fun initialize(): Boolean = loadConfig()
         override fun setConfigOption(name: String, value: String): Int {

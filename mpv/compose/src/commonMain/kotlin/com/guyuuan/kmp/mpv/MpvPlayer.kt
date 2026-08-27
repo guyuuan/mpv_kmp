@@ -72,6 +72,17 @@ data class MpvPlayerSnapshot(
 /** Platform-neutral marker consumed by the platform actual of [MpvComposeView]. */
 interface MpvVideoOutput
 
+/** Lifecycle state exposed by video outputs that can report when their native target is ready. */
+enum class MpvVideoOutputState {
+    Detached,
+    Attached
+}
+
+/** Optional capability used when loading must wait for a platform rendering target. */
+interface MpvVideoOutputReadiness : MpvVideoOutput {
+    val videoOutputState: StateFlow<MpvVideoOutputState>
+}
+
 /**
  * High-level player contract shared by local and platform-session-backed players.
  *

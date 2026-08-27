@@ -174,21 +174,32 @@ abstract class AbsMpv(
 ) : Mpv {
 
     protected val listeners: MutableList<MpvEventListener> = mutableListOf()
+    private val listenersLock = PlatformLock()
 
     @Volatile
     protected var running = false
 
     override fun addEventListener(listener: MpvEventListener) {
-        if (listener !in listeners) {
-            listeners.add(listener)
+        listenersLock.withLock {
+            if (listener !in listeners) {
+                listeners.add(listener)
+            }
         }
         startEventLoop()
     }
 
     override fun removeEventListener(listener: MpvEventListener) {
-        if (listener in listeners) {
-            listeners.remove(listener)
+        listenersLock.withLock {
+            if (listener in listeners) {
+                listeners.remove(listener)
+            }
         }
+    }
+
+    /** Dispatches against a stable snapshot so listeners may be added or removed concurrently. */
+    protected fun dispatchEvent(event: MpvEvent) {
+        val snapshot = listenersLock.withLock { listeners.toList() }
+        snapshot.forEach { it.invoke(event) }
     }
 
     protected fun loadConfig(): Boolean {

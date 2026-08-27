@@ -9,9 +9,14 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.guyuuan.kmp.mpv.AndroidMpvVideoOutput
 import com.guyuuan.kmp.mpv.MpvSurfaceView
+import com.guyuuan.kmp.mpv.MpvVideoOutputReadiness
+import com.guyuuan.kmp.mpv.MpvVideoOutputState
 import com.guyuuan.kmp.mpv.service.MpvMediaSessionService
 import com.guyuuan.kmp.mpv.service.PlaybackCoordinator
 import com.guyuuan.kmp.mpv.service.PlaybackSnapshot
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Keeps the Android MediaSessionService connected while UI commands go directly through the
@@ -46,7 +51,10 @@ internal class AndroidMediaSessionConnection(
 internal class AndroidPlaybackCoordinatorVideoOutput(
     private val coordinator: PlaybackCoordinator,
     private val pictureInPictureController: AndroidPictureInPictureController
-) : AndroidMpvVideoOutput {
+) : AndroidMpvVideoOutput, MpvVideoOutputReadiness {
+    private val mutableVideoOutputState = MutableStateFlow(MpvVideoOutputState.Detached)
+    override val videoOutputState: StateFlow<MpvVideoOutputState> =
+        mutableVideoOutputState.asStateFlow()
     private var playerView: MpvSurfaceView? = null
     private var hasAttachedSurface = false
     private var lastPictureInPictureVideoSize: Pair<Int, Int>? = null
@@ -82,9 +90,12 @@ internal class AndroidPlaybackCoordinatorVideoOutput(
         }
         coordinator.player.attach(surface)
         hasAttachedSurface = true
+        mutableVideoOutputState.value = MpvVideoOutputState.Attached
     }
 
-    override fun surfaceDestroyed(surface: Surface) = Unit
+    override fun surfaceDestroyed(surface: Surface) {
+        mutableVideoOutputState.value = MpvVideoOutputState.Detached
+    }
 
     override fun detach() {
         if (closed) return
@@ -96,6 +107,7 @@ internal class AndroidPlaybackCoordinatorVideoOutput(
         pictureInPictureController.trackPlayerView(null)
         playerView = null
         detachPlayer()
+        mutableVideoOutputState.value = MpvVideoOutputState.Detached
         closed = true
     }
 
@@ -103,6 +115,7 @@ internal class AndroidPlaybackCoordinatorVideoOutput(
         if (!hasAttachedSurface) return
         coordinator.player.detach()
         hasAttachedSurface = false
+        mutableVideoOutputState.value = MpvVideoOutputState.Detached
     }
 
     private companion object {

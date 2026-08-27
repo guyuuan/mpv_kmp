@@ -23,6 +23,8 @@ import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import androidx.core.net.toUri
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicReference
 
 /** Media3 [Player] adapter driven by platform integration state and media command callbacks. */
 @UnstableApi
@@ -31,8 +33,10 @@ class MpvMedia3Player(
     looper: Looper = Looper.getMainLooper()
 ) : SimpleBasePlayer(looper) {
     private val coordinator = commandHandler as? PlaybackCoordinator
+    private val playerLooper = looper
+    private val playerHandler = Handler(looper)
     private val playerDispatcher =
-        Handler(looper).asCoroutineDispatcher("MpvMedia3Player").immediate
+        playerHandler.asCoroutineDispatcher("MpvMedia3Player").immediate
     private val scope = CoroutineScope(SupervisorJob() + playerDispatcher)
     private var latestSnapshot = coordinator?.snapshot?.value ?: PlaybackSnapshot()
     private var currentVideoOutput: Any? = null
@@ -84,21 +88,58 @@ class MpvMedia3Player(
     }
 
     internal fun releaseFromIntegration() {
-        scope.launch {
+        if (Looper.myLooper() == playerLooper) {
             release()
+            return
         }
+
+        val completed = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>(null)
+        check(
+            playerHandler.post {
+                try {
+                    release()
+                } catch (error: Throwable) {
+                    failure.set(error)
+                } finally {
+                    completed.countDown()
+                }
+            }
+        ) { "MpvMedia3Player looper is not accepting release work" }
+        var interrupted = false
+        while (true) {
+            try {
+                completed.await()
+                break
+            } catch (_: InterruptedException) {
+                // Native teardown must not overtake the release already queued on the player
+                // looper. Restore the caller's interruption state after release has completed.
+                interrupted = true
+            }
+        }
+        if (interrupted) Thread.currentThread().interrupt()
+        failure.get()?.let { throw it }
     }
 
     override fun getState(): State {
         val snapshot = latestSnapshot
+        val publishedMetadata = snapshot.metadata
+        val queue = publishedMetadata?.let { currentMetadata ->
+            coordinator?.queueItems.orEmpty().ifEmpty {
+                listOf(currentMetadata)
+            }.map { metadata ->
+                currentMetadata.takeIf { it.mediaId == metadata.mediaId } ?: metadata
+            }
+        }.orEmpty()
+        val playbackState = snapshot.status.toMedia3PlaybackState(queue.isNotEmpty())
         val builder = State.Builder()
             .setAvailableCommands(snapshot.toMedia3Commands())
             .setPlayWhenReady(
                 snapshot.playWhenReady,
                 Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST
             )
-            .setPlaybackState(snapshot.status.toMedia3PlaybackState())
-            .setIsLoading(snapshot.status == PlaybackStatus.Loading)
+            .setPlaybackState(playbackState)
+            .setIsLoading(playbackState == Player.STATE_BUFFERING)
             .setContentPositionMs(snapshot.positionMillis)
             .setPlaybackParameters(PlaybackParameters(snapshot.speed))
             .setRepeatMode(snapshot.repeatMode.toMedia3RepeatMode())
@@ -119,14 +160,6 @@ class MpvMedia3Player(
             builder.setVideoSize(VideoSize(snapshot.videoWidth, snapshot.videoHeight))
         }
 
-        val publishedMetadata = snapshot.metadata
-        val queue = publishedMetadata?.let { currentMetadata ->
-            coordinator?.queueItems.orEmpty().ifEmpty {
-                listOf(currentMetadata)
-            }.map { metadata ->
-                currentMetadata.takeIf { it.mediaId == metadata.mediaId } ?: metadata
-            }
-        }.orEmpty()
         if (queue.isNotEmpty()) {
             val currentIndex = snapshot.queueIndex?.takeIf { it in queue.indices } ?: 0
             builder
@@ -354,15 +387,21 @@ private fun Int.toPlaybackRepeatMode(): PlaybackRepeatMode = when (this) {
     else -> PlaybackRepeatMode.None
 }
 
-private fun PlaybackStatus.toMedia3PlaybackState(): Int = when (this) {
-    PlaybackStatus.Loading -> Player.STATE_BUFFERING
-    PlaybackStatus.Playing,
-    PlaybackStatus.Paused -> Player.STATE_READY
-    PlaybackStatus.Ended -> Player.STATE_ENDED
-    PlaybackStatus.Idle,
-    PlaybackStatus.Stopped,
-    PlaybackStatus.Error,
-    PlaybackStatus.Disposed -> Player.STATE_IDLE
+internal fun PlaybackStatus.toMedia3PlaybackState(hasPublishedMedia: Boolean): Int {
+    val state = when (this) {
+        PlaybackStatus.Loading -> Player.STATE_BUFFERING
+        PlaybackStatus.Playing,
+        PlaybackStatus.Paused -> Player.STATE_READY
+        PlaybackStatus.Ended -> Player.STATE_ENDED
+        PlaybackStatus.Idle,
+        PlaybackStatus.Stopped,
+        PlaybackStatus.Error,
+        PlaybackStatus.Disposed -> Player.STATE_IDLE
+    }
+    // SimpleBasePlayer rejects an empty playlist in BUFFERING/READY. Metadata and playback
+    // updates are posted independently to the player looper, so keep the adapter valid even
+    // while it observes an intermediate or stale combination.
+    return if (!hasPublishedMedia && state != Player.STATE_ENDED) Player.STATE_IDLE else state
 }
 
 private fun PlaybackMetadata.toMediaItem(): MediaItem {

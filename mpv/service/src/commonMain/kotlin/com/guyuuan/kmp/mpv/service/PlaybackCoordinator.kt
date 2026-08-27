@@ -356,6 +356,13 @@ class PlaybackCoordinator(
             return
         }
 
+        // libmpv can deliver playback events that were already queued when stop() returned.
+        // Once the published media has been cleared, those events belong to the previous item
+        // and must not move the coordinator back to Loading/Playing/Paused or republish it.
+        // A subsequent setQueue() publishes its metadata before libmpv emits the new StartFile,
+        // so events for a real new load continue through the normal path.
+        if (snapshot.value.metadata == null && event.activatesPublishedMedia()) return
+
         var next = snapshot.value
         when (event.type) {
             MpvEventType.PropertyChange -> {
@@ -526,6 +533,19 @@ class PlaybackCoordinator(
             else -> Unit
         }
         if (next != snapshot.value) publishSnapshot(next)
+    }
+
+    private fun MpvEvent.activatesPublishedMedia(): Boolean = when (type) {
+        MpvEventType.StartFile,
+        MpvEventType.FileLoaded,
+        MpvEventType.PlaybackRestart,
+        MpvEventType.Pause,
+        MpvEventType.Unpause -> true
+
+        MpvEventType.PropertyChange ->
+            name == MpvPlaybackProperties.PAUSE || name == PLAYLIST_POSITION
+
+        else -> false
     }
 
     private fun publishSnapshot(value: PlaybackSnapshot) {

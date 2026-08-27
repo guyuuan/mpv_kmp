@@ -5,12 +5,16 @@ import com.guyuuan.kmp.mpv.data.MpvEvent
 import com.guyuuan.kmp.mpv.data.MpvPlaylistItem
 import com.guyuuan.kmp.mpv.props.MpvAudioProperties
 import com.guyuuan.kmp.mpv.props.MpvPlaybackProperties
+import com.guyuuan.kmp.mpv.util.MpvNativeCallGate
+import com.guyuuan.kmp.mpv.util.PlatformLock
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.runBlocking
 private class AndroidMpv(
     config: Map<String, String> = emptyMap()
 ) : AbsMpv(DEFAULT_CONFIG + config) {
@@ -32,27 +36,53 @@ private class AndroidMpv(
     private val observedProperties = mutableMapOf<String, Long>()
     private var nextPropertyObserverId = 1L
     private var initialized = false
+    private val callGate = MpvNativeCallGate()
+    private val lifecycleLock = PlatformLock()
+    private val inEventLoop = ThreadLocal.withInitial { false }
+    @kotlin.concurrent.Volatile
+    private var terminating = false
 
-    override fun initialize(): Boolean {
-        if (initialized) return true
-        if (!MpvNative.mpvCreate()) return false
+    override fun initialize(): Boolean = lifecycleLock.withLock {
+        if (initialized) return@withLock true
+        terminating = false
+        callGate.reopen()
+        if (!callGate.withControlCall(
+                onClosing = { false },
+                action = MpvNative::mpvCreate
+            )
+        ) return@withLock false
         if (!loadConfig()) {
-            MpvNative.mpvTerminate()
-            return false
+            destroyNativeHandle()
+            return@withLock false
         }
-        initialized = MpvNative.mpvInitialize()
-        return initialized
+        initialized = callGate.withControlCall(
+            onClosing = { false },
+            action = MpvNative::mpvInitialize
+        )
+        if (!initialized) destroyNativeHandle()
+        initialized
     }
-    override fun setConfigOption(name: String, value: String): Int = MpvNative.mpvSetOption(name, value)
+    override fun setConfigOption(name: String, value: String): Int =
+        callGate.withControlCall(onClosing = { -1 }) {
+            MpvNative.mpvSetOption(name, value)
+        }
+
     override fun attach(view: Any) {
         if (view is android.view.Surface) {
-            MpvNative.mpvAttachSurface(view)
+            callGate.withControlCall(onClosing = {}) {
+                MpvNative.mpvAttachSurface(view)
+            }
         }
     }
     override fun detach() {
-        MpvNative.mpvDetachSurface()
+        callGate.withControlCall(onClosing = {}) {
+            MpvNative.mpvDetachSurface()
+        }
     }
-    override fun commandString(cmd: String): Int = MpvNative.mpvCommandString(cmd)
+    override fun commandString(cmd: String): Int =
+        callGate.withControlCall(onClosing = { -1 }) {
+            MpvNative.mpvCommandString(cmd)
+        }
     override fun load(uri: String): Int = commandString("loadfile \"$uri\"")
     override fun addToPlaylist(uri: String, position: Int?): Int {
         val action = position?.let { "insert-at $it" } ?: "append"
@@ -77,7 +107,9 @@ private class AndroidMpv(
         val observerId = allocatePropertyObserverId()
         observedProperties[name] = observerId
         // format 1 = MPV_FORMAT_STRING
-        val result = MpvNative.mpvObserveProperty(name, observerId, 1)
+        val result = callGate.withControlCall(onClosing = { -1 }) {
+            MpvNative.mpvObserveProperty(name, observerId, 1)
+        }
         if (result < 0) {
             Logger.e(tag = "AndroidMpv") { "observeProperty failed: $result, name=$name" }
             if (observedProperties[name] == observerId) {
@@ -89,7 +121,9 @@ private class AndroidMpv(
     }
     override fun removePropertyObservation(name: String) {
         val observerId = observedProperties[name] ?: return
-        val result = MpvNative.mpvUnobserveProperty(observerId)
+        val result = callGate.withControlCall(onClosing = { -1 }) {
+            MpvNative.mpvUnobserveProperty(observerId)
+        }
         if (result < 0) {
             Logger.e(tag = "AndroidMpv") {
                 "removePropertyObservation failed: $result, name=$name"
@@ -111,8 +145,15 @@ private class AndroidMpv(
     override fun stop(): Int = commandString("stop")
     override fun setVolume(volume: Double): Int =
         setProperty(MpvAudioProperties.VOLUME, volume.toString())
-    override fun setProperty(name: String, value: String): Int = MpvNative.mpvSetProperty(name, value)
-    override fun getProperty(name: String): String? = MpvNative.mpvGetProperty(name)
+    override fun setProperty(name: String, value: String): Int =
+        callGate.withControlCall(onClosing = { -1 }) {
+            MpvNative.mpvSetProperty(name, value)
+        }
+
+    override fun getProperty(name: String): String? =
+        callGate.withControlCall(onClosing = { null }) {
+            MpvNative.mpvGetProperty(name)
+        }
     private fun readPlaylist(): List<MpvPlaylistItem> {
         val count = getProperty("playlist/count")?.toIntOrNull() ?: return emptyList()
         return (0 until count).mapNotNull { index ->
@@ -125,26 +166,76 @@ private class AndroidMpv(
             )
         }
     }
-    override fun terminate() {
+    override fun terminate() = lifecycleLock.withLock {
+        check(inEventLoop.get() != true) {
+            "Mpv.terminate() must not be called from an MpvEventListener"
+        }
+        val job = eventJob
+        if (!initialized && job == null) return@withLock
+
+        callGate.beginClosing()
+        terminating = true
         running = false
         initialized = false
-        observedProperties.clear()
-        nextPropertyObserverId = 1L
-        MpvNative.mpvTerminate() // calls wakeup
-        eventJob?.cancel()
         eventJob = null
+        job?.cancel()
+        MpvNative.mpvWakeup()
+        val interrupted = joinEventJobUninterruptibly(job)
+        try {
+            callGate.closeWhenIdle {
+                MpvNative.mpvTerminate()
+            }
+            observedProperties.clear()
+            nextPropertyObserverId = 1L
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt()
+        }
     }
+
     override fun startEventLoop() {
-        if (running) return
-        if (scope == null) return
-        running = true
-        if (eventJob?.isActive == true) return
-        eventJob = scope!!.launch(Dispatchers.IO) {
-            while (running && isActive) {
-                val event = MpvNative.mpvWaitEvent(1.0)
-                if (event != null) {
-                    handleEvent(event)
+        if (terminating) return
+        lifecycleLock.withLock {
+            if (terminating) return@withLock
+            if (running) return@withLock
+            if (!initialized) return@withLock
+            if (scope == null) return@withLock
+            running = true
+            if (eventJob?.isActive == true) return@withLock
+            eventJob = scope!!.launch(Dispatchers.IO) {
+                inEventLoop.set(true)
+                try {
+                    while (running && isActive) {
+                        val event = callGate.withEventCall(onClosing = { null }) {
+                            MpvNative.mpvWaitEvent(1.0)
+                        }
+                        if (event != null) {
+                            handleEvent(event)
+                        }
+                    }
+                } finally {
+                    inEventLoop.remove()
                 }
+            }
+        }
+    }
+
+    private fun destroyNativeHandle() {
+        callGate.beginClosing()
+        callGate.closeWhenIdle {
+            MpvNative.mpvTerminate()
+        }
+    }
+
+    private fun joinEventJobUninterruptibly(job: Job?): Boolean {
+        job ?: return false
+        var interrupted = false
+        while (true) {
+            try {
+                runBlocking { job.cancelAndJoin() }
+                return interrupted
+            } catch (_: InterruptedException) {
+                interrupted = true
+                job.cancel()
             }
         }
     }
@@ -158,7 +249,7 @@ private class AndroidMpv(
             return
         }
 
-        listeners.forEach { it.invoke(MpvEvent(type, event.propName, event.propValue, event.error)) }
+        dispatchEvent(MpvEvent(type, event.propName, event.propValue, event.error))
     }
 
     private fun mapEventType(id: Int): MpvEventType {

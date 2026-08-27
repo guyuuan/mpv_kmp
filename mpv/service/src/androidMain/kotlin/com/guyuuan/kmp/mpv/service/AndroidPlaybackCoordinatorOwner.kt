@@ -39,6 +39,7 @@ object AndroidPlaybackCoordinatorOwner {
     @Volatile
     private var playback: OwnedPlayback? = null
     private var configuredFactory: AndroidPlaybackCoordinatorFactory? = null
+    private var nextGeneration = 1L
 
     /**
      * Installs application-specific coordinator creation before the owner is initialized.
@@ -90,13 +91,19 @@ object AndroidPlaybackCoordinatorOwner {
         try {
             synchronized(lock) {
                 playback?.let { ownedPlayback ->
-                    try {
-                        ownedPlayback.interruptionManager.stop()
-                        ownedPlayback.interruptionScope.cancel()
-                        ownedPlayback.coordinator.close()
-                    } finally {
-                        playback = null
+                    // Invalidate the generation before teardown starts. A concurrent acquire sees
+                    // null and blocks on this lock until the old coordinator is fully closed.
+                    playback = null
+                    fun cleanup(action: () -> Unit) {
+                        try {
+                            action()
+                        } catch (error: Throwable) {
+                            if (cleanupFailure == null) cleanupFailure = error
+                        }
                     }
+                    cleanup { ownedPlayback.interruptionManager.stop() }
+                    cleanup { ownedPlayback.interruptionScope.cancel() }
+                    cleanup { ownedPlayback.coordinator.close() }
                 }
             }
         } catch (error: Throwable) {
@@ -143,7 +150,10 @@ object AndroidPlaybackCoordinatorOwner {
             scope = interruptionScope
         )
         interruptionManager.start()
+        val generation = nextGeneration
+        nextGeneration = if (nextGeneration == Long.MAX_VALUE) 1L else nextGeneration + 1L
         return OwnedPlayback(
+            generation = generation,
             coordinator = coordinator,
             mediaIntegration = mediaIntegration,
             interruptionManager = interruptionManager,
@@ -152,6 +162,7 @@ object AndroidPlaybackCoordinatorOwner {
     }
 
     internal data class OwnedPlayback(
+        val generation: Long,
         val coordinator: PlaybackCoordinator,
         val mediaIntegration: AndroidMediaSessionIntegration,
         val interruptionManager: AndroidPlaybackInterruptionManager,
