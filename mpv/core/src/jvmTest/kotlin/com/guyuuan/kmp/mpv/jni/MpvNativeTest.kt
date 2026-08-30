@@ -46,6 +46,24 @@ class MpvNativeTest {
     }
 
     @Test
+    fun bundledWindowsMpvLoadsWithIsolatedSearchPath() {
+        if (!System.getProperty("os.name").contains("windows", ignoreCase = true)) return
+
+        val nativeDirectory = findBundledWindowsNativeDirectory()
+        val previousNativeDirectory = System.getProperty(MPV_NATIVE_DIR_PROPERTY_FOR_TEST)
+        try {
+            System.setProperty(MPV_NATIVE_DIR_PROPERTY_FOR_TEST, nativeDirectory.absolutePath)
+            assertTrue(MpvNative.lib.mpv_client_api_version() > 0)
+        } finally {
+            if (previousNativeDirectory == null) {
+                System.clearProperty(MPV_NATIVE_DIR_PROPERTY_FOR_TEST)
+            } else {
+                System.setProperty(MPV_NATIVE_DIR_PROPERTY_FOR_TEST, previousNativeDirectory)
+            }
+        }
+    }
+
+    @Test
     fun desktopPlayerCanStopTerminateAndReinitializeRepeatedly() {
         if (!System.getProperty("os.name").contains("mac", ignoreCase = true)) return
 
@@ -89,6 +107,15 @@ class MpvNativeTest {
             File("mpv/core/src/jvmMain/resources/$platform")
         ).firstOrNull { it.resolve("libmpv.dylib").isFile }
             ?: error("Cannot find bundled macOS mpv libraries for $platform")
+    }
+
+    private fun findBundledWindowsNativeDirectory(): File {
+        val platform = "windows-x86-64"
+        return listOf(
+            File("src/jvmMain/resources/$platform"),
+            File("mpv/core/src/jvmMain/resources/$platform")
+        ).firstOrNull { it.resolve("mpv.dll").isFile }
+            ?: error("Cannot find bundled Windows mpv libraries for $platform")
     }
 
     private companion object {

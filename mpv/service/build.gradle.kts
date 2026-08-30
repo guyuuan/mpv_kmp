@@ -106,7 +106,8 @@ val windowsSmtcBridgeTask = tasks.register<Exec>("compileWindowsX8664SmtcBridge"
         "/IMPLIB:${intermediates.get().file("mpv_kmp_service_media.lib").asFile.absolutePath}",
         "windowsapp.lib",
         "runtimeobject.lib",
-        "ole32.lib"
+        "ole32.lib",
+        "user32.lib"
     )
 }
 

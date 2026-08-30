@@ -231,9 +231,11 @@ load_target () {
             if command -v ${target_triple}-gcc >/dev/null 2>&1; then
                 export CC="${target_triple}-gcc"
                 export CXX="${target_triple}-g++"
-                export AR="${target_triple}-ar"
-                export RANLIB="${target_triple}-ranlib"
-                export NM="${target_triple}-nm"
+                # GCC LTO archives need the plugin-aware wrappers so their
+                # symbol indexes remain visible to the final MinGW link.
+                export AR="${target_triple}-gcc-ar"
+                export RANLIB="${target_triple}-gcc-ranlib"
+                export NM="${target_triple}-gcc-nm"
                 export STRIP="${target_triple}-strip"
                 export WINDRES="${target_triple}-windres"
                 export TARGET_TRIPLE="$target_triple"
@@ -243,6 +245,9 @@ load_target () {
                 export WINDRES="llvm-windres"
                 export TARGET_TRIPLE="$target_triple"
             fi
+            # MinGW auto-imports use 32-bit runtime pseudo relocations. High-entropy
+            # ASLR can place dependent DLLs more than 2 GiB apart and overflow them.
+            export LDFLAGS="${LDFLAGS:+$LDFLAGS }-Wl,--disable-high-entropy-va"
             export cross_system=windows
         ;;
         *)
@@ -658,6 +663,53 @@ bundle_windows_runtime_dlls () {
     done
 }
 
+normalize_windows_dll_load_addresses () {
+    [ "$platform" = "windows" ] || return 0
+
+    local dst_dir="$1"
+    local normalizer="$PWD/tools/normalize-pe-dll.pl"
+    local entry dll_name image_base dll
+
+    [ -f "$normalizer" ] || {
+        echo "Missing Windows PE normalizer: $normalizer" >&2
+        return 1
+    }
+
+    # MinGW runtime pseudo relocations use signed 32-bit offsets. Give the
+    # complete bundled DLL closure deterministic, non-overlapping preferred
+    # addresses below 2 GiB so the JVM's existing address-space layout cannot
+    # move dependencies more than 2 GiB apart.
+    for entry in \
+        avcodec.dll:0x40000000 \
+        avfilter.dll:0x42000000 \
+        avformat.dll:0x44000000 \
+        avutil.dll:0x46000000 \
+        swresample.dll:0x47000000 \
+        swscale.dll:0x48000000 \
+        libgcc_s_seh-1.dll:0x4a000000 \
+        libstdc++-6.dll:0x4c000000 \
+        libwinpthread-1.dll:0x50000000 \
+        mpv.dll:0x52000000; do
+        dll_name="${entry%%:*}"
+        image_base="${entry#*:}"
+        dll="$dst_dir/$dll_name"
+        [ -f "$dll" ] || continue
+        perl "$normalizer" "$image_base" "$dll"
+    done
+
+    for dll in "$dst_dir"/*.dll; do
+        [ -e "$dll" ] || continue
+        case "$(basename "$dll")" in
+            avcodec.dll|avfilter.dll|avformat.dll|avutil.dll|swresample.dll|swscale.dll|libgcc_s_seh-1.dll|libstdc++-6.dll|libwinpthread-1.dll|mpv.dll)
+            ;;
+            *)
+                echo "Windows DLL has no deterministic load address: $dll" >&2
+                return 1
+            ;;
+        esac
+    done
+}
+
 find_llvm_strip () {
     local strip_tool llvm_prefix candidate
 
@@ -746,6 +798,7 @@ finalize_desktop_resource_dir () {
     ensure_windows_main_dll "$dst_dir"
     bundle_windows_runtime_dlls "$dst_dir"
     strip_resource_libs "$dst_dir"
+    normalize_windows_dll_load_addresses "$dst_dir"
 }
 
 copy_to_resources () {

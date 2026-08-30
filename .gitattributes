@@ -1,0 +1,6 @@
+*.sh text eol=lf
+gradlew text eol=lf
+buildscripts/bin/dlltool text eol=lf
+buildscripts/bin/strip text eol=lf
+
+*.bat text eol=crlf

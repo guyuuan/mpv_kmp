@@ -60,6 +60,47 @@ patch_ios_dylib_install_names() {
     perl -0pi -e 's|-Wl,-install_name,\$\(INSTALL_NAME_DIR\)/\$\(SLIBNAME_WITH_MAJOR\)|-Wl,-install_name,\@rpath/\$(SLIBNAME)|g; s|^SLIB_INSTALL_NAME=.*$|SLIB_INSTALL_NAME=\$(SLIBNAME)|m; s|^SLIB_INSTALL_LINKS=.*$|SLIB_INSTALL_LINKS=|m' "$config_mak"
 }
 
+patch_windows_high_entropy_va() {
+    [ "$platform" = "windows" ] || return 0
+
+    local config_mak="ffbuild/config.mak"
+    [ -f "$config_mak" ] || {
+        echo "Missing FFmpeg config file: $config_mak" >&2
+        return 1
+    }
+
+    # FFmpeg appends --high-entropy-va while configuring MinGW x86-64 builds.
+    # Put the compatibility override last so 32-bit runtime pseudo relocations
+    # cannot overflow when Windows places dependent DLLs more than 2 GiB apart.
+    printf '\nLDFLAGS += -Wl,--disable-high-entropy-va\n' >> "$config_mak"
+}
+
+patch_windows_unversioned_dll_names() {
+    [ "$platform" = "windows" ] || return 0
+
+    local config_mak="ffbuild/config.mak"
+    [ -f "$config_mak" ] || {
+        echo "Missing FFmpeg config file: $config_mak" >&2
+        return 1
+    }
+
+    # Keep FFmpeg's versioned build target so ffbuild/library.mak can create its
+    # normal unversioned link. The GNU import library is complete even with LTO,
+    # so rewrite only its fixed-width DLL identifier and preserve archive offsets.
+    # Also give the MS import library and installed DLL that same unversioned name.
+    sed -i '' \
+        -e 's|^SLIB_EXTRA_CMD=.*$|SLIB_EXTRA_CMD=perl -0pi -e '"'"'s/\\Q$(SLIBNAME_WITH_MAJOR)\\E(?=\\x00)/"$(SLIBNAME)" . "\\x00" x (length("$(SLIBNAME_WITH_MAJOR)") - length("$(SLIBNAME)"))/ge'"'"' $(SUBDIR)lib$(SLIBNAME:$(SLIBSUF)=.dll.a) \&\& $(DLLTOOL) -m $(LIBTARGET) -d $$(@:$(SLIBSUF)=.def) -l $(SUBDIR)$(SLIBNAME:$(SLIBSUF)=.lib) -D $(SLIBNAME)|' \
+        -e 's/^SLIB_INSTALL_NAME=.*/SLIB_INSTALL_NAME=$(SLIBNAME)/' \
+        "$config_mak"
+
+    grep -Fq 'SLIB_EXTRA_CMD=perl -0pi' "$config_mak" &&
+        grep -Fq -- '-D $(SLIBNAME)' "$config_mak" &&
+        grep -Fq 'SLIB_INSTALL_NAME=$(SLIBNAME)' "$config_mak" || {
+            echo "Failed to configure unversioned Windows FFmpeg DLL names" >&2
+            return 1
+        }
+}
+
 args=()
 size_args=(
     --enable-small --enable-lto
@@ -88,15 +129,18 @@ case "$platform" in
         [ "$platform" == "ios" ] && target_os=darwin
         [ "$platform" == "windows" ] && target_os=mingw32
         addlibs=
+        tls_args=(--enable-mbedtls)
         if [ "$platform" == "windows" ]; then
-            addlibs="-lmbedtls -lmbedx509 -lmbedcrypto -lws2_32 -lbcrypt"
+            # Use the Windows certificate store instead of mbedTLS, which has
+            # no trusted CAs unless the caller supplies an explicit ca_file.
+            tls_args=(--disable-mbedtls --enable-schannel)
         fi
         args=(
             --target-os=$target_os --enable-cross-compile
             --cc="$cc_bin" --pkg-config=pkg-config --nm=$NM --strip="$STRIP"
             --arch=${arch_family}
             --extra-cflags="-I$prefix_dir/include $cpuflags $target_flags $darwin_target_flags -DHAVE_SYSCTL_H=0 -DHAVE_SYSCTL=0" --extra-ldflags="-L$prefix_dir/lib $target_flags $darwin_target_flags" --extra-libs="$addlibs"
-            --enable-mbedtls $dav1d_flag --disable-vulkan
+            "${tls_args[@]}" $dav1d_flag --disable-vulkan
             --disable-static --enable-shared --disable-gpl --enable-version3
             "${size_args[@]}"
             --disable-filter=gfxcapture
@@ -119,6 +163,8 @@ if [ "$platform" = "ios" ]; then
 else
     env "${configure_env[@]}" ../configure "${args[@]}"
 fi
+patch_windows_high_entropy_va
+patch_windows_unversioned_dll_names
 patch_ios_dylib_install_names
 [ -f ffbuild/config.h ] && sed -i '' -e 's/^#define HAVE_SYSCTL_H 1/#define HAVE_SYSCTL_H 0/' -e 's/^#define HAVE_SYSCTL 1/#define HAVE_SYSCTL 0/' ffbuild/config.h || true
 [ -f config.h ] && sed -i '' -e 's/^#define HAVE_SYSCTL_H 1/#define HAVE_SYSCTL_H 0/' -e 's/^#define HAVE_SYSCTL 1/#define HAVE_SYSCTL 0/' config.h || true

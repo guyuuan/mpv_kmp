@@ -2,7 +2,7 @@ rootProject.name = "mpv_kmp"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
-//    includeBuild("mpv-gradle-plugin")
+    includeBuild("mpv-gradle-plugin")
 
     repositories {
         maven {

@@ -96,6 +96,8 @@ gl_cocoa_opt="-Dgl-cocoa=disabled"
 [ "$platform" = "macos" ] && gl_cocoa_opt="-Dgl-cocoa=enabled"
 android_link_opts=
 [ "$platform" = "android" ] && android_link_opts="-Dc_link_args=-lc++_shared"
+windows_link_opts=
+[ "$platform" = "windows" ] && windows_link_opts="-Dc_link_args=-Wl,--disable-high-entropy-va -Dcpp_link_args=-Wl,--disable-high-entropy-va"
 mpv_compile_args="-DNO_BUILD_TIMESTAMPS"
 [ -n "${CFLAGS:-}" ] && mpv_compile_args="$CFLAGS $mpv_compile_args"
 mpv_swift_flags=
@@ -131,7 +133,7 @@ meson setup "${meson_setup_args[@]}" --cross-file "$prefix_dir"/crossfile.txt \
     "-Dc_args=$mpv_compile_args" \
     "-Dobjc_args=$mpv_compile_args" \
     "-Dswift-flags=$mpv_swift_flags" \
-    $android_link_opts \
+    $android_link_opts $windows_link_opts \
     $( [ "$cross_system" = "windows" ] && echo "-Dzlib=disabled" )
 
 patch_macos_coreaudio_utils_source

@@ -1,0 +1,29 @@
+// Keep .gitignore exceptions effective: Syncthing uses the first matching rule.
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata
+!*.xcodeproj/project.xcworkspace
+!*.xcworkspace/contents.xcworkspacedata
+
+// Local version-control metadata.
+/.git
+
+// Local editor state and temporary files.
+.fleet
+.run
+*.swp
+*.swo
+*~
+
+// Disposable operating-system metadata.
+(?d).DS_Store
+(?d)Thumbs.db
+(?d)Desktop.ini
+
+// Generated files covered by buildscripts/.gitignore.
+/buildscripts/sdk
+/buildscripts/prefix
+/buildscripts/prefix64
+/buildscripts/*.tgz
+
+// Reuse the repository-wide ignore rules.
+#include .gitignore
