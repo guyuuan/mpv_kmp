@@ -172,7 +172,8 @@ data class PlaybackSnapshot(
     val queueSize: Int = 0,
     val repeatMode: PlaybackRepeatMode = PlaybackRepeatMode.None,
     val shuffleEnabled: Boolean = false,
-    val availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS
+    val availableCommands: Set<MediaCommandType> = DEFAULT_MEDIA_COMMANDS,
+    val bufferingProgress: Float = 0f
 ) {
     val isPlaying: Boolean
         get() = status == PlaybackStatus.Playing
@@ -180,6 +181,7 @@ data class PlaybackSnapshot(
     init {
         require(positionMillis >= 0) { "Position must not be negative" }
         require(durationMillis >= 0) { "Duration must not be negative" }
+        require(bufferingProgress in 0f..1f) { "Buffering progress must be between 0 and 1" }
         require(videoWidth >= 0) { "Video width must not be negative" }
         require(videoHeight >= 0) { "Video height must not be negative" }
         require(queueSize >= 0) { "Queue size must not be negative" }

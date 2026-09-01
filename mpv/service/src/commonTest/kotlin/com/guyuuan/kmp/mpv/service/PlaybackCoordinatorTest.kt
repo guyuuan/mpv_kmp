@@ -65,6 +65,7 @@ class PlaybackCoordinatorTest {
                     MpvPlaybackProperties.SPEED,
                     MpvPlaybackProperties.TIME_POSITION,
                     MpvPlaybackProperties.DURATION,
+                    MpvPlaybackProperties.CACHE_BUFFERING_STATE,
                     "playlist-pos",
                     "loop-file",
                     "loop-playlist"
@@ -121,6 +122,13 @@ class PlaybackCoordinatorTest {
         fixture.mpv.emit(
             MpvEvent(
                 type = MpvEventType.PropertyChange,
+                name = MpvPlaybackProperties.CACHE_BUFFERING_STATE,
+                value = "42"
+            )
+        )
+        fixture.mpv.emit(
+            MpvEvent(
+                type = MpvEventType.PropertyChange,
                 name = "video-out-params/dw",
                 value = "1920"
             )
@@ -140,6 +148,7 @@ class PlaybackCoordinatorTest {
                 playWhenReady = true,
                 positionMillis = 12_250,
                 durationMillis = 125_500,
+                bufferingProgress = 0.42f,
                 videoWidth = 1920,
                 videoHeight = 1080,
                 queueIndex = 0,

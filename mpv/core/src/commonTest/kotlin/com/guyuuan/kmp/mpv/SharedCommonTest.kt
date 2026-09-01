@@ -90,7 +90,7 @@ class SharedCommonTest {
     @Test
     fun playbackPropertyConstantsExposeMpvNames() {
         assertEquals(
-            listOf("pause", "time-pos", "duration", "speed"),
+            listOf("pause", "time-pos", "duration", "speed", "cache-buffering-state"),
             MpvPlaybackProperties.ALL
         )
     }

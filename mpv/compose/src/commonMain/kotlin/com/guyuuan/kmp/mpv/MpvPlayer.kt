@@ -57,7 +57,9 @@ data class MpvPlayerSnapshot(
     val volume: Float = 0f,
     val speed: Float = 1f,
     val canPrevious: Boolean = false,
-    val canNext: Boolean = false
+    val canNext: Boolean = false,
+    /** Cache fill progress required for playback to resume, normalized to 0f..1f. */
+    val bufferingProgress: Float = 0f
 ) {
     val isPaused: Boolean
         get() = state == MpvPlayerState.Paused
@@ -299,6 +301,10 @@ class LocalMpvPlayer(
                         durationSeconds = event.value?.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
                     )
 
+                    MpvPlaybackProperties.CACHE_BUFFERING_STATE -> next.copy(
+                        bufferingProgress = event.value.toBufferingProgress()
+                    )
+
                     MpvAudioProperties.VOLUME -> next.copy(
                         volume = event.value?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
                     )
@@ -334,7 +340,8 @@ class LocalMpvPlayer(
                 next = next.copy(
                     state = MpvPlayerState.Loading,
                     positionSeconds = 0.0,
-                    durationSeconds = 0.0
+                    durationSeconds = 0.0,
+                    bufferingProgress = 0f
                 )
             }
 
@@ -383,7 +390,8 @@ class LocalMpvPlayer(
                 hasActiveFile = false
                 resetPendingQueueLoadIfLoading()
                 next = next.copy(
-                    state = if (stopRequested) MpvPlayerState.Stopped else MpvPlayerState.Ended
+                    state = if (stopRequested) MpvPlayerState.Stopped else MpvPlayerState.Ended,
+                    bufferingProgress = 0f
                 )
                 stopRequested = false
             }
@@ -404,7 +412,8 @@ class LocalMpvPlayer(
                 next = next.copy(
                     state = MpvPlayerState.Disposed,
                     canPrevious = false,
-                    canNext = false
+                    canNext = false,
+                    bufferingProgress = 0f
                 )
             }
 
@@ -427,6 +436,7 @@ class LocalMpvPlayer(
                     state = MpvPlayerState.Loading,
                     positionSeconds = 0.0,
                     durationSeconds = 0.0,
+                    bufferingProgress = 0f,
                     canPrevious = false,
                     canNext = false
                 )
@@ -468,7 +478,8 @@ class LocalMpvPlayer(
                 snapshot.value.copy(
                     state = MpvPlayerState.Loading,
                     positionSeconds = 0.0,
-                    durationSeconds = 0.0
+                    durationSeconds = 0.0,
+                    bufferingProgress = 0f
                 ).withPlaylistNavigation(playlistPosition, playlistSize)
             )
         } else {
@@ -534,7 +545,8 @@ class LocalMpvPlayer(
             publish(
                 snapshot.value.copy(
                     state = MpvPlayerState.Stopped,
-                    positionSeconds = 0.0
+                    positionSeconds = 0.0,
+                    bufferingProgress = 0f
                 )
             )
         } else {
@@ -611,7 +623,8 @@ class LocalMpvPlayer(
             snapshot.value.copy(
                 state = MpvPlayerState.Disposed,
                 canPrevious = false,
-                canNext = false
+                canNext = false,
+                bufferingProgress = 0f
             )
         )
         releaseMpv()
@@ -645,6 +658,9 @@ class LocalMpvPlayer(
 internal const val UNSUPPORTED_MPV_COMMAND: Int = -1
 
 private fun String?.toMpvBoolean(): Boolean = this == "yes" || this == "true"
+
+private fun String?.toBufferingProgress(): Float =
+    ((this?.toFloatOrNull() ?: 0f) / 100f).coerceIn(0f, 1f)
 
 private fun String?.toPlaylistIndex(): Int? = this?.toDoubleOrNull()?.toInt()
 

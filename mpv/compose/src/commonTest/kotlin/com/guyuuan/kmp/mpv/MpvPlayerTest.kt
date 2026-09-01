@@ -4,6 +4,7 @@ import com.guyuuan.kmp.mpv.data.MpvDecoderInfo
 import com.guyuuan.kmp.mpv.data.MpvEvent
 import com.guyuuan.kmp.mpv.data.MpvPlaylistItem
 import com.guyuuan.kmp.mpv.props.MpvDecoderProperties
+import com.guyuuan.kmp.mpv.props.MpvPlaybackProperties
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -17,6 +18,30 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 class MpvPlayerTest {
+    @Test
+    fun localPlayerPublishesNormalizedBufferingProgress() = runBlocking {
+        val mpv = FakeMpv(emptyMap())
+        val playerScope = CoroutineScope(Job())
+        val player = LocalMpvPlayer(mpv, playerScope)
+        player.setup()
+
+        assertTrue(MpvPlaybackProperties.CACHE_BUFFERING_STATE in mpv.observedProperties)
+        mpv.emitEvent(
+            MpvEvent(
+                type = MpvEventType.PropertyChange,
+                name = MpvPlaybackProperties.CACHE_BUFFERING_STATE,
+                value = "42"
+            )
+        )
+
+        eventually { player.snapshot.value.bufferingProgress == 0.42f }
+        player.close()
+        assertEquals(MpvPlayerState.Disposed, player.snapshot.value.state)
+        assertEquals(0f, player.snapshot.value.bufferingProgress)
+        assertTrue(MpvPlaybackProperties.CACHE_BUFFERING_STATE in mpv.removedProperties)
+        playerScope.cancel()
+    }
+
     @Test
     fun localPlayerInsertsMediaAtRequestedPlaylistPosition() = runBlocking {
         val mpv = FakeMpv(emptyMap())

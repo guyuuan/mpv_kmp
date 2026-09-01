@@ -340,6 +340,7 @@ internal fun PlaybackSnapshot.toMpvPlayerSnapshot(
     },
     positionSeconds = positionMillis / MILLIS_PER_SECOND,
     durationSeconds = durationMillis / MILLIS_PER_SECOND,
+    bufferingProgress = bufferingProgress,
     volume = volume,
     speed = speed,
     canPrevious = canGoPrevious(hasExternalNavigation),

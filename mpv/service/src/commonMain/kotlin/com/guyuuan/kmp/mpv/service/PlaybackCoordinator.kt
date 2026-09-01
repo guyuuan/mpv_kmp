@@ -129,7 +129,8 @@ class PlaybackCoordinator(
                 metadata = metadata,
                 playWhenReady = playWhenReady,
                 queueIndex = currentIndex,
-                queueSize = items.size
+                queueSize = items.size,
+                bufferingProgress = 0f
             )
         )
         publishMetadata(metadata)
@@ -272,7 +273,8 @@ class PlaybackCoordinator(
                     snapshot.value.copy(
                         metadata = null,
                         status = PlaybackStatus.Stopped,
-                        playWhenReady = false
+                        playWhenReady = false,
+                        bufferingProgress = 0f
                     )
                 )
                 publishMetadata(null)
@@ -326,7 +328,8 @@ class PlaybackCoordinator(
             status = PlaybackStatus.Disposed,
             playWhenReady = false,
             positionMillis = 0,
-            durationMillis = 0
+            durationMillis = 0,
+            bufferingProgress = 0f
         )
         mutableSnapshot.value = disposed
         cleanup { mediaIntegration.updatePlaybackState(disposed) }
@@ -386,6 +389,10 @@ class PlaybackCoordinator(
                     MpvPlaybackProperties.TIME_POSITION -> next.copy(positionMillis = event.value.toNonNegativeMillis())
 
                     MpvPlaybackProperties.DURATION -> next.copy(durationMillis = event.value.toNonNegativeMillis())
+
+                    MpvPlaybackProperties.CACHE_BUFFERING_STATE -> next.copy(
+                        bufferingProgress = event.value.toBufferingProgress()
+                    )
 
                     MpvAudioProperties.VOLUME -> next.copy(
                         volume = event.value?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
@@ -460,6 +467,7 @@ class PlaybackCoordinator(
                     status = PlaybackStatus.Loading,
                     positionMillis = 0,
                     durationMillis = 0,
+                    bufferingProgress = 0f,
                     videoWidth = 0,
                     videoHeight = 0
                 )
@@ -509,7 +517,8 @@ class PlaybackCoordinator(
                 hasActiveFile = false
                 resetPendingQueueLoadIfLoading()
                 next = next.copy(
-                    status = if (stopRequested) PlaybackStatus.Stopped else PlaybackStatus.Ended
+                    status = if (stopRequested) PlaybackStatus.Stopped else PlaybackStatus.Ended,
+                    bufferingProgress = 0f
                 )
                 stopRequested = false
             }
@@ -526,7 +535,9 @@ class PlaybackCoordinator(
                 stopRequested = false
                 clearPendingQueueLoad()
                 next = next.copy(
-                    status = PlaybackStatus.Disposed, playWhenReady = false
+                    status = PlaybackStatus.Disposed,
+                    playWhenReady = false,
+                    bufferingProgress = 0f
                 )
             }
 
@@ -655,6 +666,7 @@ private val COORDINATOR_OBSERVED_PROPERTIES = listOf(
     MpvPlaybackProperties.SPEED,
     MpvPlaybackProperties.TIME_POSITION,
     MpvPlaybackProperties.DURATION,
+    MpvPlaybackProperties.CACHE_BUFFERING_STATE,
     VIDEO_DISPLAY_WIDTH,
     VIDEO_DISPLAY_HEIGHT,
     PLAYLIST_POSITION,
@@ -668,6 +680,9 @@ private fun String?.toMpvBoolean(): Boolean = this == "yes" || this == "true"
 
 private fun String?.toNonNegativeMillis(): Long =
     ((this?.toDoubleOrNull() ?: 0.0).coerceAtLeast(0.0) * MILLIS_PER_SECOND).toLong()
+
+private fun String?.toBufferingProgress(): Float =
+    ((this?.toFloatOrNull() ?: 0f) / 100f).coerceIn(0f, 1f)
 
 private fun String?.toNonNegativeDimension(): Int =
     (this?.toDoubleOrNull() ?: 0.0).toInt().coerceAtLeast(0)
