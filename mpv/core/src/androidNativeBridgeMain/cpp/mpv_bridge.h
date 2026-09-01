@@ -11,7 +11,7 @@ int32_t mpv_bridge_on_load(void* vm, void* reserved);
 uint8_t mpv_bridge_init(void* env, void* clazz);
 uint8_t mpv_bridge_create(void* env, void* clazz);
 int32_t mpv_bridge_set_option(void* env, void* clazz, void* name, void* value);
-uint8_t mpv_bridge_initialize(void* env, void* clazz);
+uint8_t mpv_bridge_initialize(void* env, void* clazz, void* log_level);
 void mpv_bridge_attach_surface(void* env, void* clazz, void* surface);
 void mpv_bridge_detach_surface(void* env, void* clazz);
 int32_t mpv_bridge_command_string(void* env, void* clazz, void* command);

@@ -29,12 +29,27 @@ interface Mpv {
             "sub-margin-y" to "80",
         )
         private var instance: Mpv? = null
+        private val configurationState = MpvConfigurationState()
 
         private val lock = PlatformLock()
 
         @OptIn(InternalCoroutinesApi::class)
         operator fun invoke(config: MpvConfig = MpvConfig()): Mpv =
-            instance ?: lock.withLock { instance ?: createMpv(config).also { instance = it } }
+            lock.withLock {
+                instance?.also { current ->
+                    if (config != MpvConfig()) {
+                        check(current is AbsMpv) { "Unsupported Mpv implementation" }
+                        current.updateConfig(config)
+                    }
+                } ?: createMpv(resolveConfig(config)).also { instance = it }
+            }
+
+        internal fun configure(config: MpvConfig) = lock.withLock {
+            configurationState.configure(config)
+        }
+
+        private fun resolveConfig(fallback: MpvConfig): MpvConfig =
+            configurationState.resolve(fallback)
 
         @OptIn(InternalCoroutinesApi::class)
         fun release() = lock.withLock {
@@ -170,8 +185,11 @@ interface Mpv {
 }
 
 abstract class AbsMpv(
-    protected val config: Map<String, String> = emptyMap()
+    config: Map<String, String> = emptyMap(),
+    private val defaultConfig: Map<String, String> = emptyMap()
 ) : Mpv {
+    protected var config: Map<String, String> = config
+        private set
 
     protected val listeners: MutableList<MpvEventListener> = mutableListOf()
     private val listenersLock = PlatformLock()
@@ -215,7 +233,51 @@ abstract class AbsMpv(
 
     protected open fun setConfigOption(name: String, value: String): Int = 0
 
+    internal open fun updateConfig(config: MpvConfig) {
+        this.config = defaultConfig + config.toMap()
+    }
+
     abstract fun startEventLoop()
+}
+
+internal class MpvConfigurationState {
+    private var configured: MpvConfig? = null
+    private var accessed = false
+
+    fun configure(config: MpvConfig) {
+        check(!accessed) {
+            "Mpv is already created"
+        }
+        check(configured == null) {
+            "Mpv is already configured"
+        }
+        configured = config
+    }
+
+    fun resolve(fallback: MpvConfig): MpvConfig {
+        val resolved = configured?.also { configured ->
+            check(fallback == MpvConfig() || fallback == configured) {
+                "MpvConfig was supplied both through configureMpv and Mpv"
+            }
+        } ?: fallback
+        accessed = true
+        return resolved
+    }
+}
+
+/**
+ * Installs the process-wide configuration used when [Mpv] is first created.
+ *
+ * This is a one-time startup operation and must be called before the first [Mpv] access. A later
+ * explicit non-default configuration passed to `Mpv(...)` updates the shared instance.
+ */
+fun configureMpv(config: MpvConfig) {
+    Mpv.configure(config)
+}
+
+/** DSL overload of [configureMpv]. */
+fun configureMpv(configure: MpvConfig.Builder.() -> Unit) {
+    configureMpv(MpvConfig.Builder().apply(configure).build())
 }
 
 internal expect fun createMpv(config: MpvConfig): Mpv

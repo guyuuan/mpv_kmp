@@ -1,6 +1,7 @@
 package com.guyuuan.kmp.mpv
 
 import com.guyuuan.kmp.mpv.config.MpvConfig
+import com.guyuuan.kmp.mpv.config.MpvLogLevel
 import com.guyuuan.kmp.mpv.data.MpvEvent
 import com.guyuuan.kmp.mpv.data.MpvPlaylistItem
 import com.guyuuan.kmp.mpv.jni.LocaleSetter
@@ -69,8 +70,9 @@ internal fun desktopRenderMode(): RenderMode {
 //}
 
 internal class JvmMpv(
-    config: Map<String, String> = emptyMap()
-) : AbsMpv(DEFAULT_CONFIG + config), SoftwareRenderContextSupport, HardwareRenderSupport {
+    config: Map<String, String> = emptyMap(),
+    private var logLevel: MpvLogLevel = MpvLogLevel.Verbose
+) : AbsMpv(DEFAULT_CONFIG + config, DEFAULT_CONFIG), SoftwareRenderContextSupport, HardwareRenderSupport {
     private companion object {
         val DEFAULT_CONFIG: Map<String, String> = Mpv.DEFAULT_CONFIG + mapOf(
             "vo" to "libmpv",
@@ -137,7 +139,7 @@ internal class JvmMpv(
                     } else {
                         nativeTrace("init.$rid.before.request_log")
                         callGate.withControlCall(onClosing = { -1 }) {
-                            MpvNative.lib.mpv_request_log_messages(c, "v")
+                            MpvNative.lib.mpv_request_log_messages(c, logLevel.value)
                         }
                         nativeTrace("init.$rid.after.request_log")
                         true
@@ -178,6 +180,11 @@ internal class JvmMpv(
             }
         }
         return ret
+    }
+
+    internal override fun updateConfig(config: MpvConfig) = lifecycleLock.withLock {
+        super.updateConfig(config)
+        logLevel = config.logLevel ?: MpvLogLevel.Verbose
     }
 
     override fun attach(view: Any) {
@@ -798,4 +805,5 @@ internal class JvmMpv(
 }
 
 
-internal actual fun createMpv(config: MpvConfig): Mpv = JvmMpv(config.toMap())
+internal actual fun createMpv(config: MpvConfig): Mpv =
+    JvmMpv(config.toMap(), config.logLevel ?: MpvLogLevel.Verbose)

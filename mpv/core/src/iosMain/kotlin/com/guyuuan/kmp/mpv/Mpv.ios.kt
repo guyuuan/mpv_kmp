@@ -1,6 +1,7 @@
 package com.guyuuan.kmp.mpv
 
 import com.guyuuan.kmp.mpv.config.MpvConfig
+import com.guyuuan.kmp.mpv.config.MpvLogLevel
 import cnames.structs.mpv_handle
 import cnames.structs.mpv_render_context
 import cnames.structs.__CVBuffer
@@ -75,8 +76,9 @@ private var openGlEsFrameworkHandle: COpaquePointer? = null
 
 @OptIn(ExperimentalForeignApi::class)
 private class IosMpv(
-    config: Map<String, String> = emptyMap()
-) : AbsMpv(DEFAULT_CONFIG + config), IosRenderContextSupport {
+    config: Map<String, String> = emptyMap(),
+    private var logLevel: MpvLogLevel = MpvLogLevel.Verbose
+) : AbsMpv(DEFAULT_CONFIG + config, DEFAULT_CONFIG), IosRenderContextSupport {
     private companion object {
         val DEFAULT_CONFIG: Map<String, String> = Mpv.DEFAULT_CONFIG + mapOf(
             "vo" to "libmpv",
@@ -127,7 +129,7 @@ private class IosMpv(
             return@withLock false
         }
         callGate.withControlCall(onClosing = { -1 }) {
-            mpv_request_log_messages(h, "v")
+            mpv_request_log_messages(h, logLevel.value)
         }
         true
     }
@@ -142,6 +144,11 @@ private class IosMpv(
             }
         }
         return result
+    }
+
+    internal override fun updateConfig(config: MpvConfig) = lifecycleLock.withLock {
+        super.updateConfig(config)
+        logLevel = config.logLevel ?: MpvLogLevel.Verbose
     }
 
     override fun attach(view: Any) {
@@ -696,6 +703,7 @@ private class IosMpv(
     }
 }
 
-internal actual fun createMpv(config: MpvConfig): Mpv = IosMpv(config.toMap())
+internal actual fun createMpv(config: MpvConfig): Mpv =
+    IosMpv(config.toMap(), config.logLevel ?: MpvLogLevel.Verbose)
 
 private const val SAMPLE_BUFFER_FRAME_RATE = 30

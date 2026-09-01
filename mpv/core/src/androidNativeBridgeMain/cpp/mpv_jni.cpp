@@ -103,6 +103,17 @@ static const char* mpv_error(int error) {
     return p_mpv_error_string ? p_mpv_error_string(error) : "unknown";
 }
 
+static void request_log_messages(JNIEnv* env, jstring log_level) {
+    if (!p_mpv_request_log_messages || !mpv_handle_ptr || !env || !log_level) return;
+    const char* level = env->GetStringUTFChars(log_level, nullptr);
+    if (!level) return;
+    int result = p_mpv_request_log_messages(mpv_handle_ptr, level);
+    if (result < 0) {
+        LOGW("mpv_request_log_messages %s failed: %d (%s)", level, result, mpv_error(result));
+    }
+    env->ReleaseStringUTFChars(log_level, level);
+}
+
 static void register_java_vm() {
     if (!java_vm_ptr) return;
     if (!avcodec_handle) {
@@ -275,7 +286,7 @@ extern "C" int32_t mpv_bridge_set_option(
     return r;
 }
 
-extern "C" uint8_t mpv_bridge_initialize(void*, void*) {
+extern "C" uint8_t mpv_bridge_initialize(void* env_ptr, void*, void* log_level_ptr) {
     if (!p_mpv_initialize || !mpv_handle_ptr) {
         LOGE("mpvInitialize called before mpv was created");
         return JNI_FALSE;
@@ -290,12 +301,10 @@ extern "C" uint8_t mpv_bridge_initialize(void*, void*) {
         return JNI_FALSE;
     }
     mpv_initialized = true;
-    if (p_mpv_request_log_messages) {
-        int log_result = p_mpv_request_log_messages(mpv_handle_ptr, "warn");
-        if (log_result < 0) {
-            LOGW("mpv_request_log_messages failed: %d (%s)", log_result, mpv_error(log_result));
-        }
-    }
+    request_log_messages(
+        static_cast<JNIEnv*>(env_ptr),
+        static_cast<jstring>(log_level_ptr)
+    );
     set_surface_wid();
     LOGI("mpv initialized");
     return JNI_TRUE;

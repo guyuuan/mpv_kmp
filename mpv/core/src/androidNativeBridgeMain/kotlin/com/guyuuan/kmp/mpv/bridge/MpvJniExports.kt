@@ -26,8 +26,11 @@ fun mpvSetOption(
 ): Int = mpv_bridge_set_option(env, clazz, name, value)
 
 @CName("Java_com_guyuuan_kmp_mpv_MpvNative_mpvInitialize")
-fun mpvInitialize(env: COpaquePointer?, clazz: COpaquePointer?): UByte =
-    mpv_bridge_initialize(env, clazz)
+fun mpvInitialize(
+    env: COpaquePointer?,
+    clazz: COpaquePointer?,
+    logLevel: COpaquePointer?,
+): UByte = mpv_bridge_initialize(env, clazz, logLevel)
 
 @CName("Java_com_guyuuan_kmp_mpv_MpvNative_mpvAttachSurface")
 fun mpvAttachSurface(

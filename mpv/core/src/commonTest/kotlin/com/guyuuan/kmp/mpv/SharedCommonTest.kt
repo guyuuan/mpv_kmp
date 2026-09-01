@@ -2,6 +2,7 @@ package com.guyuuan.kmp.mpv
 
 import com.guyuuan.kmp.mpv.config.FontConfig
 import com.guyuuan.kmp.mpv.config.MpvConfig
+import com.guyuuan.kmp.mpv.config.MpvLogLevel
 import com.guyuuan.kmp.mpv.data.MpvAudioDecoderInfo
 import com.guyuuan.kmp.mpv.data.MpvAudioTrack
 import com.guyuuan.kmp.mpv.data.MpvDecoderInfo
@@ -15,7 +16,10 @@ import com.guyuuan.kmp.mpv.props.MpvPlaybackProperties
 import com.guyuuan.kmp.mpv.props.MpvSubtitleProperties
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlinx.coroutines.CoroutineScope
 
 class SharedCommonTest {
@@ -319,7 +323,8 @@ class SharedCommonTest {
             other = mapOf(
                 "hwdec" to "no",
                 MpvSubtitleProperties.FONT to "ignored-font"
-            )
+            ),
+            logLevel = MpvLogLevel.Trace
         )
 
         assertEquals(
@@ -331,6 +336,108 @@ class SharedCommonTest {
                 MpvSubtitleProperties.MARGIN_Y to "64"
             ),
             config.toMap()
+        )
+        assertEquals(MpvLogLevel.Trace, config.logLevel)
+        assertEquals("trace", config.logLevel?.value)
+    }
+
+    @Test
+    fun mpvLogLevelsMapToLibmpvValues() {
+        assertEquals(null, MpvConfig().logLevel)
+        assertEquals(
+            listOf("no", "fatal", "error", "warn", "info", "v", "debug", "trace"),
+            MpvLogLevel.entries.map(MpvLogLevel::value)
+        )
+    }
+
+    @Test
+    fun mpvConfigTakesAnImmutableSnapshotOfOtherOptions() {
+        val options = mutableMapOf("hwdec" to "no")
+        val config = MpvConfig(other = options, logLevel = MpvLogLevel.Debug)
+
+        options["hwdec"] = "auto-copy"
+
+        assertEquals(mapOf("hwdec" to "no"), config.other)
+        assertEquals(MpvLogLevel.Debug, config.logLevel)
+        assertNotSame(options, config.other)
+    }
+
+    @Test
+    fun copiedMpvConfigTakesAnImmutableSnapshotOfOtherOptions() {
+        val options = mutableMapOf("hwdec" to "no")
+        val config = MpvConfig().copy(other = options)
+
+        options["hwdec"] = "auto-copy"
+
+        assertEquals(mapOf("hwdec" to "no"), config.other)
+        assertNotSame(options, config.other)
+    }
+
+    @Test
+    fun updatingMpvConfigReplacesPreviouslyStoredOptions() {
+        val player = FakeMpv(
+            properties = emptyMap(),
+            config = mapOf("stale-option" to "yes")
+        )
+
+        player.updateConfig(MpvConfig(other = mapOf("hwdec" to "no")))
+
+        assertEquals(true, player.initialize())
+        assertEquals(
+            mapOf(
+                "hwdec" to "no",
+                MpvSubtitleProperties.FONT_DIR to FontConfig.DEFAULT_SUB_FONTS_DIR,
+                MpvSubtitleProperties.FONT to FontConfig.DEFAULT_SUB_FONT,
+                MpvSubtitleProperties.FONT_SIZE to FontConfig.DEFAULT_SUB_FONT_SIZE.toString(),
+                MpvSubtitleProperties.MARGIN_Y to FontConfig.DEFAULT_SUB_MARGIN_Y.toString()
+            ),
+            player.configOptions.toMap()
+        )
+    }
+
+    @Test
+    fun globalMpvConfigurationResolvesDefaultFallback() {
+        val state = MpvConfigurationState()
+        val configured = MpvConfig(logLevel = MpvLogLevel.Debug)
+        state.configure(configured)
+
+        assertSame(configured, state.resolve(MpvConfig()))
+        assertSame(configured, state.resolve(configured))
+    }
+
+    @Test
+    fun globalMpvConfigurationRejectsConflictingDirectConfig() {
+        val state = MpvConfigurationState()
+        state.configure(MpvConfig(logLevel = MpvLogLevel.Debug))
+
+        val failure = assertFailsWith<IllegalStateException> {
+            state.resolve(MpvConfig(logLevel = MpvLogLevel.Error))
+        }
+
+        assertEquals(
+            "MpvConfig was supplied both through configureMpv and Mpv",
+            failure.message
+        )
+    }
+
+    @Test
+    fun globalMpvConfigurationIsOneTimeAndMustPrecedeAccess() {
+        val repeated = MpvConfigurationState()
+        repeated.configure(MpvConfig())
+        assertEquals(
+            "Mpv is already configured",
+            assertFailsWith<IllegalStateException> {
+                repeated.configure(MpvConfig())
+            }.message
+        )
+
+        val accessed = MpvConfigurationState()
+        accessed.resolve(MpvConfig())
+        assertEquals(
+            "Mpv is already created",
+            assertFailsWith<IllegalStateException> {
+                accessed.configure(MpvConfig())
+            }.message
         )
     }
 

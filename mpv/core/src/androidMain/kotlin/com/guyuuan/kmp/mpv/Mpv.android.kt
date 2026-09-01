@@ -1,6 +1,7 @@
 package com.guyuuan.kmp.mpv
 
 import com.guyuuan.kmp.mpv.config.MpvConfig
+import com.guyuuan.kmp.mpv.config.MpvLogLevel
 import com.guyuuan.kmp.mpv.data.MpvEvent
 import com.guyuuan.kmp.mpv.data.MpvPlaylistItem
 import com.guyuuan.kmp.mpv.props.MpvAudioProperties
@@ -16,8 +17,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.runBlocking
 private class AndroidMpv(
-    config: Map<String, String> = emptyMap()
-) : AbsMpv(DEFAULT_CONFIG + config) {
+    config: Map<String, String> = emptyMap(),
+    private var logLevel: MpvLogLevel = MpvLogLevel.Warn
+) : AbsMpv(DEFAULT_CONFIG + config, DEFAULT_CONFIG) {
     private companion object {
         val DEFAULT_CONFIG: Map<String, String> = Mpv.DEFAULT_CONFIG+ mapOf(
             "vo" to "gpu",
@@ -57,8 +59,7 @@ private class AndroidMpv(
         }
         initialized = callGate.withControlCall(
             onClosing = { false },
-            action = MpvNative::mpvInitialize
-        )
+        ) { MpvNative.mpvInitialize(logLevel.value) }
         if (!initialized) destroyNativeHandle()
         initialized
     }
@@ -66,6 +67,11 @@ private class AndroidMpv(
         callGate.withControlCall(onClosing = { -1 }) {
             MpvNative.mpvSetOption(name, value)
         }
+
+    internal override fun updateConfig(config: MpvConfig) = lifecycleLock.withLock {
+        super.updateConfig(config)
+        logLevel = config.logLevel ?: MpvLogLevel.Warn
+    }
 
     override fun attach(view: Any) {
         if (view is android.view.Surface) {
@@ -284,4 +290,5 @@ private class AndroidMpv(
     }
 }
 
-internal actual fun createMpv(config: MpvConfig): Mpv = AndroidMpv(config.toMap())
+internal actual fun createMpv(config: MpvConfig): Mpv =
+    AndroidMpv(config.toMap(), config.logLevel ?: MpvLogLevel.Warn)
