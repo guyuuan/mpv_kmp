@@ -131,6 +131,9 @@ kotlin {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
         }
+        optimization {
+            consumerKeepRules.file("consumer-rules.pro")
+        }
 
     }
     val androidNativeArm64Target = androidNativeArm64().apply {
