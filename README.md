@@ -75,3 +75,17 @@ Diagnostics go through [Kermit](https://kermit.touchlab.co/). The default platfo
 ## License
 
 [Apache License 2.0](./LICENSE)
+
+### Verifying published native artifacts
+
+After publishing a plugin version containing the useLocalNativeLibraries option,
+run ./gradlew -PusePublishedMpv=true --refresh-dependencies :example:desktopApp:run.
+This switches the example libraries and Gradle plugin to published dependencies
+and disables automatic discovery of repository native libraries. The configured
+version in the version catalog must refer to that publication.
+
+Consumers can set mpvKmp { useLocalNativeLibraries.set(false) } to disable
+automatic local native discovery for Desktop and iOS. It defaults to true;
+explicit native directory overrides still take precedence. Desktop native ZIPs
+contain root-level libraries and META-INF/ legal resources, which are retained
+in application resources. Archives without the platform's main mpv library fail.

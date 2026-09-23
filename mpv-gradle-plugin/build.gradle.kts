@@ -13,6 +13,8 @@ group = providers.gradleProperty("GROUP").getOrElse("com.guyuuan.kmp.mpv")
 version = providers.gradleProperty("VERSION_NAME").getOrElse("dev-SNAPSHOT")
 
 dependencies {
+    testImplementation(kotlin("test-junit"))
+    testImplementation(gradleTestKit())
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.10")
 }
 

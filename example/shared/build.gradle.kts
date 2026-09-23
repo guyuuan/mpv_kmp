@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
 plugins {
-    alias(libs.plugins.mpv)
+    id("com.guyuuan.kmp.mpv")
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
@@ -49,7 +49,7 @@ kotlin {
             }
             val devMode = localProperties["devMode"]
             logger.warn("dev mode: $devMode")
-            if(devMode == "release"){
+            if (devMode == "release" || providers.gradleProperty("usePublishedMpv").map(String::toBoolean).getOrElse(false)) {
                 api(libs.mpv.pip)
                 api(libs.mpv.coil)
             }else{
@@ -60,4 +60,10 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
         }
     }
+}
+
+mpvKmp {
+    useLocalNativeLibraries.set(
+        providers.gradleProperty("usePublishedMpv").map { !it.toBoolean() }.orElse(true)
+    )
 }

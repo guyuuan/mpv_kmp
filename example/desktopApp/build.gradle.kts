@@ -28,3 +28,9 @@ compose.desktop {
         }
     }
 }
+
+mpvKmp {
+    useLocalNativeLibraries.set(
+        providers.gradleProperty("usePublishedMpv").map { !it.toBoolean() }.orElse(true)
+    )
+}
