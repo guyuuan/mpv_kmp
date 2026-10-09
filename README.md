@@ -25,15 +25,31 @@ Sample apps live in `example/` (shared Compose UI, Android, Desktop) and `iosApp
 
 ## Using the library
 
+The first stable release is prepared as **0.1.0**. Release notes are in [CHANGELOG.md](./CHANGELOG.md).
+
+Resolve the Gradle plugin from Maven Central in `settings.gradle.kts`:
+
+```kotlin
+pluginManagement {
+    repositories {
+        mavenCentral()
+        google()
+        gradlePluginPortal()
+    }
+}
+```
+
+Also include `mavenCentral()` and `google()` in your dependency repositories.
+
 ```kotlin
 plugins {
-    id("com.guyuuan.kmp.mpv") version "<version>"
+    id("com.guyuuan.kmp.mpv") version "0.1.0"
 }
 
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.guyuuan.kmp.mpv:core:<version>")
+            implementation("com.guyuuan.kmp.mpv:core:0.1.0")
         }
     }
 }
@@ -61,6 +77,18 @@ Published under group `com.guyuuan.kmp.mpv`:
 | Gradle plugin | `com.guyuuan.kmp.mpv:mpv-gradle-plugin` |
 
 Kotlin APIs use the `com.guyuuan.kmp.mpv` package; platform artifacts (`core-android`, `core-jvm`, `core-iosarm64`, …) are resolved automatically from the root module metadata.
+
+## Releasing
+
+The `Publish Maven packages` workflow publishes branch pushes as `dev-SNAPSHOT`.
+Pushing a version tag such as `v0.1.0` publishes and releases both the Gradle plugin
+and libraries to Maven Central as `0.1.0`. The tag must point to the verified release
+commit; creating it locally does not publish packages.
+
+The workflow requires Maven Central credentials and an in-memory signing key in
+repository secrets. Before pushing the release tag, verify the release build and
+platform samples. After the workflow succeeds, confirm that the plugin, all five
+library modules, and their native archives are available on Maven Central.
 
 ## Logging
 

@@ -4,18 +4,18 @@ import org.gradle.api.tasks.bundling.Zip
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    kotlin("jvm") version "2.4.10"
+    kotlin("jvm") version "2.4.21"
     `java-gradle-plugin`
     id("com.vanniktech.maven.publish") version "0.37.0"
 }
 
 group = providers.gradleProperty("GROUP").getOrElse("com.guyuuan.kmp.mpv")
-version = providers.gradleProperty("VERSION_NAME").getOrElse("dev-SNAPSHOT")
+version = providers.gradleProperty("VERSION_NAME").getOrElse("0.1.0")
 
 dependencies {
     testImplementation(kotlin("test-junit"))
     testImplementation(gradleTestKit())
-    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.10")
+    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.21")
 }
 
 kotlin {
