@@ -4,7 +4,7 @@ on:
   push:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -63,6 +63,22 @@ jobs:
             exit 1
           fi
 
+      - name: Validate Gradle plugin
+        run: >-
+          ./gradlew -p mpv-gradle-plugin
+          check publishToMavenLocal
+          -PVERSION_NAME=${{ steps.publication.outputs.version }}
+          --no-configuration-cache
+
+      - name: Validate libraries
+        run: >-
+          ./gradlew
+          jvmTest
+          :mpv:service:testAndroidHostTest
+          publishToMavenLocal
+          -PVERSION_NAME=${{ steps.publication.outputs.version }}
+          --no-configuration-cache
+
       - name: Publish Gradle plugin
         run: >-
           ./gradlew -p mpv-gradle-plugin
@@ -76,3 +92,17 @@ jobs:
           ${{ steps.publication.outputs.task }}
           -PVERSION_NAME=${{ steps.publication.outputs.version }}
           --no-configuration-cache
+
+      - name: Create GitHub Release
+        if: success() && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ steps.publication.outputs.version }}
+        shell: bash
+        run: |
+          release_args=(--verify-tag --generate-notes --title "mpv-kmp $RELEASE_VERSION")
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" "${release_args[@]}"
