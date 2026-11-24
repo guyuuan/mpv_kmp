@@ -66,13 +66,13 @@ fun KotlinNativeTarget.configureAndroidJniBridge() {
     }
 }
 
-val iosNativeLibrariesDir = layout.projectDirectory.dir("src/iosMain/nativeLibs/iphoneos")
+val iosNativeLibrariesDir = layout.projectDirectory.dir("src/iosMain/nativeLibs")
 val iosNativeLibrariesZip by tasks.registering(Zip::class) {
     group = "publishing"
     description = "Packages iOS mpv dynamic libraries for app embedding."
-    archiveClassifier.set("ios-arm64-native-libs")
+    archiveClassifier.set("ios-native-libs")
     from(iosNativeLibrariesDir) {
-        include("lib*.dylib")
+        include("iphoneos/lib*.dylib", "iphonesimulator/lib*.dylib")
     }
     from(nativeLegalResourcesDir) {
         into("META-INF")

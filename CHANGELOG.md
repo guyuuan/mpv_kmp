@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+- Publish Desktop and iOS native ZIPs under `core`. The Gradle plugin resolves them from the matching `core` version.
+- The `ios-native-libs` classifier replaces `ios-arm64-native-libs` and includes both device and simulator libraries.
+- Publish libraries before the Gradle plugin in CI.
+
 ## 0.1.0
 
 First stable release, prepared for publication.

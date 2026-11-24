@@ -25,7 +25,7 @@ Sample apps live in `example/` (shared Compose UI, Android, Desktop) and `iosApp
 
 ## Using the library
 
-The first stable release is prepared as **0.1.0**. Release notes are in [CHANGELOG.md](./CHANGELOG.md).
+The current release is **0.1.1**. Release notes are in [CHANGELOG.md](./CHANGELOG.md).
 
 Resolve the Gradle plugin from Maven Central in `settings.gradle.kts`:
 
@@ -43,21 +43,23 @@ Also include `mavenCentral()` and `google()` in your dependency repositories.
 
 ```kotlin
 plugins {
-    id("com.guyuuan.kmp.mpv") version "0.1.0"
+    id("com.guyuuan.kmp.mpv") version "0.1.1"
 }
 
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.guyuuan.kmp.mpv:core:0.1.0")
+            implementation("com.guyuuan.kmp.mpv:core:0.1.1")
         }
     }
 }
 ```
 
+Use the same version for the Gradle plugin and the `mpv` modules. The plugin resolves the native ZIPs from `core` at that version.
+
 **Desktop**: the plugin extracts the host's mpv native libraries, passes the directory to `run`, and bundles them into Compose Desktop app resources. Runtime search order: `-Dmpv.kmp.native.dir` → Compose resources (`mpv-kmp/<platform>`) → legacy `mpv` JARs → system mpv. Override with `mpvKmp.desktopNativeDirectoryOverride`.
 
-**iOS**: the plugin resolves the `ios-native-libs` ZIP, links the framework against `libmpv.dylib`, and embeds/signs the mpv & FFmpeg dylibs. Add to the Kotlin framework Run Script phase:
+**iOS**: `core` publishes an `ios-native-libs` ZIP containing both device and simulator libraries. The plugin extracts it, links the framework against `libmpv.dylib`, and embeds/signs the mpv & FFmpeg dylibs. Add to the Kotlin framework Run Script phase:
 
 ```sh
 ./gradlew :shared:mpvKmpEmbedAndSignAppleFrameworkForXcode
@@ -81,8 +83,8 @@ Kotlin APIs use the `com.guyuuan.kmp.mpv` package; platform artifacts (`core-and
 ## Releasing
 
 The `Publish Maven packages` workflow publishes branch pushes as `dev-SNAPSHOT`.
-Pushing a version tag such as `v0.1.0` publishes and releases both the Gradle plugin
-and libraries to Maven Central as `0.1.0`. The tag must point to the verified release
+Pushing a version tag such as `v0.1.1` publishes and releases both the Gradle plugin
+and libraries to Maven Central as `0.1.1`. The tag must point to the verified release
 commit; creating it locally does not publish packages.
 
 The workflow requires Maven Central credentials and an in-memory signing key in

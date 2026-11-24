@@ -370,7 +370,7 @@ abstract class ExtractMpvKmpDesktopNativeLibsTask : DefaultTask() {
         val names = DesktopNativeLibraries.bundledLibraryNames(javaClass.classLoader, platformId)
         require(names.isNotEmpty()) {
             "Missing mpv desktop native libraries for $platformId. Ensure the " +
-                "jvm-$platformId-native-libs plugin artifact is available from a dependency repository, " +
+                "core ZIP with classifier jvm-$platformId-native-libs is available from a dependency repository, " +
                 "build the local native libraries, or set mpvKmp.desktopNativeDirectoryOverride."
         }
 
@@ -480,7 +480,7 @@ abstract class ExtractMpvKmpIosDylibsTask : DefaultTask() {
             }
         }
         require(outputRoot.resolve("iphoneos/libmpv.dylib").isFile) {
-            "Missing mpv iOS native libraries. Ensure the ios-native-libs plugin artifact is available " +
+            "Missing mpv iOS native libraries. Ensure the core ZIP with classifier ios-native-libs is available " +
                 "from a dependency repository, build the local native libraries, or set " +
                 "mpvKmp.iosNativeDirectoryOverride."
         }
@@ -619,7 +619,7 @@ private fun Project.nativeArchiveFiles(
         ?.takeUnless { it.isBlank() }
         ?: return files
     val dependency = dependencies.create(
-        "com.guyuuan.kmp.mpv:mpv-gradle-plugin:$pluginVersion:$classifier@zip"
+        "com.guyuuan.kmp.mpv:core:$pluginVersion:$classifier@zip"
     )
     val configuration = configurations.detachedConfiguration(dependency).apply {
         isTransitive = false

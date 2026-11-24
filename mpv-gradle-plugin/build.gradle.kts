@@ -1,6 +1,4 @@
-import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.bundling.Jar
-import org.gradle.api.tasks.bundling.Zip
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -10,7 +8,7 @@ plugins {
 }
 
 group = providers.gradleProperty("GROUP").getOrElse("com.guyuuan.kmp.mpv")
-version = providers.gradleProperty("VERSION_NAME").getOrElse("0.1.0")
+version = providers.gradleProperty("VERSION_NAME").getOrElse("0.1.1")
 
 dependencies {
     testImplementation(kotlin("test-junit"))
@@ -51,18 +49,8 @@ mavenPublishing {
         url.set("https://github.com/guyuuan/mpv_kmp")
         licenses {
             license {
-                name.set("The Apache License, Version 2.0 (Gradle plugin code)")
+                name.set("The Apache License, Version 2.0")
                 url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
-                distribution.set("repo")
-            }
-            license {
-                name.set("GNU Lesser General Public License, version 2.1 or later (bundled native libraries)")
-                url.set("https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html")
-                distribution.set("repo")
-            }
-            license {
-                name.set("GNU Lesser General Public License, version 3 or later (bundled native libraries)")
-                url.set("https://www.gnu.org/licenses/lgpl-3.0.html")
                 distribution.set("repo")
             }
         }
@@ -83,48 +71,6 @@ mavenPublishing {
         }
     }
 }
-
-val nativeLibrariesRoot = layout.projectDirectory.dir("../mpv/core")
-val nativeLegalResourcesDir = nativeLibrariesRoot.dir("src/commonMain/resources/META-INF")
-val iosNativeLibrariesZip by tasks.registering(Zip::class) {
-    group = "publishing"
-    description = "Packages iOS mpv dynamic libraries without embedding them in the plugin JAR."
-    archiveClassifier.set("ios-native-libs")
-    from(nativeLibrariesRoot.dir("src/iosMain/nativeLibs")) {
-        include("**/lib*.dylib")
-    }
-    from(nativeLegalResourcesDir) {
-        into("META-INF")
-    }
-}
-
-val desktopNativeResourcesDir = nativeLibrariesRoot.dir("src/jvmMain/resources").asFile
-val desktopNativePlatforms = desktopNativeResourcesDir
-    .listFiles()
-    ?.filter { candidate -> candidate.isDirectory && candidate.listFiles()?.any { it.isFile } == true }
-    ?.map { it.name }
-    ?.sorted()
-    ?: emptyList()
-
-fun String.toNativeTaskSuffix(): String =
-    split("-").joinToString("") { part ->
-        part.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-    }
-
-val desktopNativeLibrariesZips = desktopNativePlatforms.map { platform ->
-    tasks.register<Zip>("${platform.toNativeTaskSuffix()}MpvKmpPluginNativeLibrariesZip") {
-        group = "publishing"
-        description = "Packages mpv desktop native libraries for $platform."
-        archiveClassifier.set("jvm-$platform-native-libs")
-        from(desktopNativeResourcesDir.resolve(platform)) {
-            include("*")
-        }
-        from(nativeLegalResourcesDir) {
-            into("META-INF")
-        }
-    }
-}
-
 tasks.named<Jar>("jar") {
     manifest {
         attributes(
@@ -132,14 +78,5 @@ tasks.named<Jar>("jar") {
             "Implementation-Version" to project.version,
             "Implementation-Vendor-Id" to project.group
         )
-    }
-}
-
-publishing {
-    publications.withType<MavenPublication>().configureEach {
-        if (name == "pluginMaven") {
-            artifact(iosNativeLibrariesZip)
-            desktopNativeLibrariesZips.forEach { artifact(it) }
-        }
     }
 }

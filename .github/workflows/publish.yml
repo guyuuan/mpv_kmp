@@ -79,16 +79,16 @@ jobs:
           -PVERSION_NAME=${{ steps.publication.outputs.version }}
           --no-configuration-cache
 
-      - name: Publish Gradle plugin
+      - name: Publish libraries
         run: >-
-          ./gradlew -p mpv-gradle-plugin
+          ./gradlew
           ${{ steps.publication.outputs.task }}
           -PVERSION_NAME=${{ steps.publication.outputs.version }}
           --no-configuration-cache
 
-      - name: Publish libraries
+      - name: Publish Gradle plugin
         run: >-
-          ./gradlew
+          ./gradlew -p mpv-gradle-plugin
           ${{ steps.publication.outputs.task }}
           -PVERSION_NAME=${{ steps.publication.outputs.version }}
           --no-configuration-cache

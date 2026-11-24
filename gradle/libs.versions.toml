@@ -28,7 +28,7 @@ kotlinStdlib = "2.4.21"
 ktor = "3.5.2"
 runner = "1.7.0"
 core = "1.7.0"
-kmp_mpv= "0.1.0"
+kmp_mpv= "0.1.1"
 [libraries]
 kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlinGradlePlugin" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
